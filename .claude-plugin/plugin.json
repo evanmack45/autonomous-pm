@@ -1,0 +1,9 @@
+{
+  "name": "autonomous-pm",
+  "version": "0.1.0",
+  "description": "Autonomous project manager that analyzes codebases, generates work items, and executes the full development lifecycle with cross-LLM code review.",
+  "author": {
+    "name": "Evan McMillan"
+  },
+  "license": "MIT"
+}
