@@ -1,3 +1,8 @@
+---
+name: run
+description: Launch the autonomous PM to analyze, improve, and ship code with cross-LLM review
+---
+
 # Run Autonomous PM
 
 Launch the autonomous project manager on the current repository. The PM analyzes the codebase, identifies improvements, and executes them through a strict development lifecycle with cross-LLM code review.
