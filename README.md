@@ -4,14 +4,14 @@ A Claude Code plugin that autonomously manages your project. Run `/autopilot` in
 
 ## What It Does
 
-1. **Assesses** the repo — reads docs, checks issues, runs tests, understands the current state
+1. **Assesses** the repo — reads docs, checks issues, runs tests, discovers CI workflows, understands the current state
 2. **Picks** the highest-priority task and creates GitHub issues to track it
 3. **Plans** the work using brainstorming and planning skills scaled to complexity
 4. **Implements** by dispatching subagents in isolated git worktrees
 5. **Validates** against acceptance criteria, runs tests, checks scope, updates docs
 6. **Opens a PR** linked to the issue with full context
-7. **Iterates** through Copilot code reviews — fixes feedback, pushes back when warranted, resolves threads
-8. **Merges** the PR when Copilot gives it a clean bill of health
+7. **Iterates** through Copilot code reviews and CI checks — fixes feedback, pushes back when warranted, resolves threads
+8. **Merges** the PR when Copilot review is clean and CI is green
 
 All work is tracked through GitHub Issues. Subtasks get their own issues linked to the parent. PRs auto-close issues on merge.
 

@@ -5,7 +5,7 @@ Claude Code plugin for autonomous project management with Copilot-driven code re
 ## Structure
 
 - `commands/autopilot.md` — Entry point slash command
-- `skills/pm-workflow/SKILL.md` — Core workflow: assessment, planning, implementation, quality gate, PR creation, Copilot review loop, wrap-up
+- `skills/pm-workflow/SKILL.md` — Core workflow: assessment, planning, implementation, quality gate, PR creation, CI verification, Copilot review loop, wrap-up
 - `agents/implementer.md` — Subagent dispatched for implementation tasks and review fixes
 - `hooks/` — Session-start hook that reminds users about `/autopilot`
 
