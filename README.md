@@ -1,26 +1,19 @@
-# Autonomous PM
+# Autopilot
 
-A Claude Code plugin that runs your project for you.
+A Claude Code plugin that autonomously manages your project. Run `/autopilot` in any repo and the PM takes over — it assesses the codebase, picks the highest-priority work, plans it, implements via subagents, creates a PR, and iterates through GitHub Copilot code reviews until the PR is clean.
 
 ## What It Does
 
-Install this plugin in any repo, run `/autonomous-pm:run`, and the PM agent takes over. It:
+1. **Assesses** the repo — reads docs, checks issues, runs tests, understands the current state
+2. **Picks** the highest-priority task and creates GitHub issues to track it
+3. **Plans** the work using brainstorming and planning skills scaled to complexity
+4. **Implements** by dispatching subagents in isolated git worktrees
+5. **Validates** against acceptance criteria, runs tests, checks scope, updates docs
+6. **Opens a PR** linked to the issue with full context
+7. **Iterates** through Copilot code reviews — fixes feedback, pushes back when warranted, resolves threads
+8. **Merges** the PR when Copilot gives it a clean bill of health
 
-1. Analyzes your codebase to understand what it is and what state it's in
-2. Identifies improvements -- from broken tests to missing features
-3. Executes each improvement through a strict development lifecycle
-4. Gets every PR reviewed by GitHub Copilot (a different LLM)
-5. Merges clean PRs and stops when there's nothing meaningful left to do
-
-All work is tracked through GitHub Issues. The agent creates an issue before starting each item, links it in the PR, and closes it on merge.
-
-## Lifecycle Tiers
-
-The PM scales ceremony to the size of the change:
-
-- **Small** (typo, lint fix): branch, fix, verify, PR, review, merge
-- **Medium** (new tests, bug fix): branch, plan, implement, verify, PR, review, merge
-- **Large** (new feature): brainstorm, design, plan, implement, verify, PR, review, merge
+All work is tracked through GitHub Issues. Subtasks get their own issues linked to the parent. PRs auto-close issues on merge.
 
 ## Requirements
 
@@ -40,29 +33,23 @@ claude plugins add /path/to/autonomous-pm
 ```bash
 cd your-project
 claude
-# then type: /autonomous-pm:run
+# then type: /autopilot
 ```
 
-The PM runs until convergence. When it stops, it prints a summary of what was accomplished.
+## Plugin Structure
 
-Check `.pm/runs/` for detailed run reports and `.pm/manifest.md` for the agent's project understanding and history.
-
-## How It Works
-
-The PM agent runs a five-step loop:
-
-1. **Orient** -- Read the codebase, docs, and manifest to build a mental model
-2. **Identify** -- Generate ranked improvement candidates (broken things first, new features last)
-3. **Classify** -- Assign each candidate a tier (small, medium, large)
-4. **Execute** -- Run the skill chain for that tier, including Copilot code review
-5. **Evaluate** -- Check if meaningful work remains; if yes, loop back
-
-The agent stops when it can't find anything worthwhile left to do, or when all remaining candidates are speculative.
+```
+.claude-plugin/plugin.json   # Plugin metadata
+commands/autopilot.md         # /autopilot slash command
+skills/pm-workflow/SKILL.md   # Core PM workflow (6 phases)
+agents/implementer.md         # Subagent for coding tasks and review fixes
+hooks/                        # Session-start hook (reminder to run /autopilot)
+```
 
 ## Safety
 
-- Never deletes user code without replacement tests passing
-- Never changes public interfaces unless fixing a bug
-- Never pushes directly to main
-- Never commits secrets
-- Escalates to human review when stuck instead of forcing through
+- Never pushes directly to main — always uses feature branches
+- Never force pushes
+- Never skips tests
+- Stops the review loop and escalates when a fix can't be resolved automatically
+- Resolves pushback deadlocks instead of arguing indefinitely
