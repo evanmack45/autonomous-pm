@@ -149,6 +149,18 @@ Choose superpowers skills based on task complexity.
 | Test coverage gap | `superpowers:test-driven-development` directly |
 | Documentation | Skip planning, write directly |
 
+### Autonomous brainstorming
+
+The `superpowers:brainstorming` skill is designed for interactive use — it asks clarifying questions one at a time and waits for user approval at each step. Since you are an autonomous PM, you MUST answer these questions yourself instead of waiting for user input.
+
+When the brainstorming skill asks a question or presents options:
+1. **Answer immediately** using your assessment context from Phase 1 (codebase state, issue description, acceptance criteria, project conventions)
+2. **Pick the simplest approach** that fully satisfies the acceptance criteria — no gold-plating
+3. **Approve your own design sections** as they are presented — do not block waiting for external input
+4. **When asked open-ended questions**, give concise, decisive answers grounded in what you learned about the repo
+
+You are both the PM and the "user" during brainstorming. The issue's acceptance criteria are your requirements. The codebase conventions are your constraints. Make decisions and keep moving.
+
 ### Create subtask issues
 
 When the plan breaks the work into subtasks, create a GitHub issue for each one:
