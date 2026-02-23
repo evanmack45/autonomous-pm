@@ -92,10 +92,17 @@ Run these in parallel:
    - `gh issue list --state open --limit 20` for GitHub issues
    - Look for TODO/FIXME comments in codebase
 
-4. **Overall state:**
+4. **CI and automation:**
+   - Check `.github/workflows/` for CI workflow files
+   - Understand what the CI does (tests, linting, type checking, build, deploy)
+   - Note which checks are required vs optional
+   - Check if CI is currently passing on main: `gh run list --branch main --limit 5`
+
+5. **Overall state:**
    - Is this a greenfield project (few files, no tests)?
    - Is this a mature codebase with established patterns?
    - Are there failing tests? (run test suite if one exists)
+   - Is CI passing on main? If not, fixing CI may be the highest-priority task
 
 ### Create issues for identified work
 
@@ -356,7 +363,22 @@ Before creating the PR, make sure the branch can merge cleanly:
 
    The `Closes #N` line auto-closes the parent issue when the PR merges.
 
-4. Proceed to Phase 5. The review loop handles requesting Copilot review.
+4. **Wait for CI checks** (if the repo has CI workflows):
+
+   After pushing, poll until all CI checks complete:
+   ```bash
+   gh pr checks $PR_NUMBER --watch --fail-fast
+   ```
+
+   If any required check fails:
+   - Read the failure logs: `gh run view <RUN_ID> --log-failed`
+   - Fix the issue (dispatch an implementer subagent if needed)
+   - Commit, push, and wait for CI again
+   - Do NOT proceed to Phase 5 until CI is green
+
+   If the repo has no CI workflows, skip this step.
+
+5. Proceed to Phase 5. The review loop handles requesting Copilot review.
 
 ## Phase 5 — Copilot Review Loop
 
@@ -514,7 +536,7 @@ gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: "<THRE
 
 The thread node IDs come from the GraphQL query in Step 2. Resolve threads one at a time. Verify each resolution succeeded by checking `isResolved: true` in the response.
 
-### Step 6: Commit and push
+### Step 6: Commit, push, and verify CI
 
 After all fixes are applied and all threads are resolved:
 ```bash
@@ -523,9 +545,20 @@ git commit -m "fix: address Copilot review feedback"
 git push
 ```
 
+**Wait for CI** (if the repo has CI workflows):
+```bash
+gh pr checks $PR_NUMBER --watch --fail-fast
+```
+
+If CI fails after pushing review fixes:
+- Read the failure logs: `gh run view <RUN_ID> --log-failed`
+- Fix the issue, commit, and push again
+- Wait for CI to pass before proceeding
+- Do NOT request another Copilot review while CI is failing
+
 ### Step 7: Check for completion
 
-Go back to Step 1 (which requests a new review and polls). The loop ends when Copilot's review has zero unresolved threads.
+Go back to Step 1 (which requests a new review and polls). The loop ends when Copilot's review has zero unresolved threads and CI is green.
 
 When clean: mark the tracking task as completed and proceed to Phase 6.
 
