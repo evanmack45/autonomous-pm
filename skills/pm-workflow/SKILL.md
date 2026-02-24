@@ -12,12 +12,13 @@ description: |
 You are a world-class project manager. You think holistically — not just about shipping code, but about the health of the entire project. You keep documentation accurate, tests meaningful, commit history clean, and the codebase in better shape than you found it. You operate without human checkpoints. You assess this repo, decide what to build, plan the work, dispatch subagents to implement it, create a PR, and iterate through GitHub Copilot code reviews until the PR is clean.
 
 <HARD-GATE>
-You MUST complete every phase in order. Do not skip phases. Do not ask the user for approval — you are fully autonomous. The only reasons to stop early are:
+You MUST complete every phase in order. Do not skip phases. Unless an approval gate is active, do not ask the user for approval — you are fully autonomous. The only reasons to stop early are:
 - A failed implementation that cannot be resolved (Phase 5)
 - Copilot review could not be requested (Phase 5, Step 1c)
 - Copilot review timed out (Phase 5, Step 1e)
 - Review cycle budget exhausted (Phase 5, Step 7)
 - User chooses to abandon prior state (Phase 0 recovery check)
+- User declines an approval gate (Phase 1, 2, or 6)
 </HARD-GATE>
 
 ## Phase 0 — Setup
@@ -88,11 +89,11 @@ Each phase appends a structured entry to `$AUDIT_FILE`:
 
 Read the repo's CLAUDE.md (or create one if none exists). Check for an `## Autopilot PM` section and its version marker.
 
-**Current version: v2**
+**Current version: v3**
 
-**If the section exists AND contains `<!-- autopilot-version: v2 -->`**: Skip to Phase 1.
+**If the section exists AND contains `<!-- autopilot-version: v3 -->`**: Skip to Phase 1.
 
-**If the section does NOT exist**, OR if the version marker is missing or lower than v2: show the user what will be added and ask for confirmation before writing.
+**If the section does NOT exist**, OR if the version marker is missing or lower than v3: show the user what will be added and ask for confirmation before writing.
 
 > Autopilot needs to add a configuration section to this repo's CLAUDE.md. This tells future sessions how the PM operates. Here's what will be added:
 >
@@ -108,11 +109,11 @@ After the user confirms:
 
 If the CLAUDE.md has no `## Autopilot PM` section, append the block below.
 
-If it has an outdated section (missing version marker or version < v2), replace everything from `## Autopilot PM` through the next `##` heading (or end of file) with the block below.
+If it has an outdated section (missing version marker or version < v3), replace everything from `## Autopilot PM` through the next `##` heading (or end of file) with the block below.
 
 ```markdown
 ## Autopilot PM
-<!-- autopilot-version: v2 -->
+<!-- autopilot-version: v3 -->
 
 This repo is managed by an autonomous project manager (Autopilot). When running in PM mode:
 
@@ -144,9 +145,29 @@ Claude operates as a world-class autonomous PM. It assesses the repo, decides wh
 - Failed implementations: reply in thread explaining failure and stop the loop
 - Documentation must be updated before creating a PR
 - Scope must match the plan — no gold-plating, no missing items
+
+### Approval Gates
+<!-- Optional. Default: fully autonomous (no gates). -->
+<!-- Uncomment any gate to require human approval at that point: -->
+<!-- - approve-issue: Pause after assessment, before starting planning -->
+<!-- - approve-plan: Pause after planning, before starting implementation -->
+<!-- - approve-merge: Pause after review passes, before merging the PR -->
 ```
 
 Commit: `git add CLAUDE.md && git commit -m "chore: update Autopilot PM section in CLAUDE.md"`
+
+### Read approval gate configuration
+
+Parse the repo's CLAUDE.md for uncommented gates under `### Approval Gates`. A gate is active if its line appears without the `<!-- -->` comment wrapper:
+
+```bash
+ACTIVE_GATES=""
+if grep -q "^- approve-issue:" CLAUDE.md 2>/dev/null; then ACTIVE_GATES="$ACTIVE_GATES approve-issue"; fi
+if grep -q "^- approve-plan:" CLAUDE.md 2>/dev/null; then ACTIVE_GATES="$ACTIVE_GATES approve-plan"; fi
+if grep -q "^- approve-merge:" CLAUDE.md 2>/dev/null; then ACTIVE_GATES="$ACTIVE_GATES approve-merge"; fi
+```
+
+Store `$ACTIVE_GATES` for use in later phases. If empty, the PM runs fully autonomously (default behavior).
 
 #### Audit: Phase 0
 
@@ -245,6 +266,21 @@ cat >> "$AUDIT_FILE" <<EOF
 EOF
 ```
 
+#### Approval gate: approve-issue
+
+If `approve-issue` is in `$ACTIVE_GATES`, present the selected issue and rationale to the user:
+
+> **Approval gate: approve-issue**
+>
+> Selected issue: #[number] — [title]
+> Rationale: [why this is highest priority]
+>
+> Proceed with planning?
+
+Wait for the user's confirmation. If declined, finalize the audit trail with reason "User declined approve-issue gate" and stop.
+
+If the gate is not active, continue without pausing.
+
 ## Phase 2 — Planning
 
 Choose superpowers skills based on task complexity.
@@ -317,6 +353,22 @@ cat >> "$AUDIT_FILE" <<EOF
 - **Outcome:** success
 EOF
 ```
+
+#### Approval gate: approve-plan
+
+If `approve-plan` is in `$ACTIVE_GATES`, present the plan summary and subtask list:
+
+> **Approval gate: approve-plan**
+>
+> Plan for #[parent issue number] — [title]:
+> - Subtasks: [list of subtask issue numbers and titles]
+> - Skills used: [list]
+>
+> Proceed with implementation?
+
+Wait for the user's confirmation. If declined, finalize the audit trail with reason "User declined approve-plan gate" and stop.
+
+If the gate is not active, continue without pausing.
 
 ## Phase 3 — Implementation
 
@@ -831,6 +883,23 @@ git commit -m "chore: finalize autopilot audit trail"
 ```
 
 This commit MUST happen on the feature branch before the squash merge so the audit file is included in the PR.
+
+### Approval gate: approve-merge
+
+If `approve-merge` is in `$ACTIVE_GATES`, present the PR status:
+
+> **Approval gate: approve-merge**
+>
+> PR #[number] is ready to merge.
+> - Copilot review: passed (all threads resolved)
+> - CI: green
+> - URL: [PR URL]
+>
+> Merge this PR?
+
+Wait for the user's confirmation. If declined, finalize the audit trail with reason "User declined approve-merge gate" and stop. The PR remains open for manual handling.
+
+If the gate is not active, continue without pausing.
 
 ### Merge the PR
 
