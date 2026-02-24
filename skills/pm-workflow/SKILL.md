@@ -118,7 +118,7 @@ Read the repo's CLAUDE.md (or create one if none exists). Check for an `## Autop
 
 **Current version: v3**
 
-**If the section exists AND contains `<!-- autopilot-version: v3 -->`**: Skip to Phase 1.
+**If the section exists AND contains `<!-- autopilot-version: v3 -->`**: Skip the writing/updating step below and continue to "Read approval gate configuration".
 
 **If the section does NOT exist**, OR if the version marker is missing or lower than v3: show the user what will be added and ask for confirmation before writing.
 
@@ -207,9 +207,17 @@ Parse the repo's CLAUDE.md for an uncommented `max-issues` value under `### Pipe
 ```bash
 MAX_ISSUES=$(grep -oP '^max-issues:\s*\K[0-9]+' CLAUDE.md 2>/dev/null || echo "3")
 ISSUES_COMPLETED=0
+
+# Restore counter from checkpoint if resuming a pipeline session
+if [ -f ".autopilot/checkpoint.json" ]; then
+  RESTORED=$(grep -oP '"issues_completed":\s*\K[0-9]+' .autopilot/checkpoint.json 2>/dev/null || echo "")
+  if [ -n "$RESTORED" ]; then
+    ISSUES_COMPLETED=$RESTORED
+  fi
+fi
 ```
 
-Default is 3 issues per session if not configured or if the line is commented out.
+Default is 3 issues per session if not configured or if the line is commented out. If a checkpoint exists from a previous session, the counter is restored so the pipeline respects the cumulative limit.
 
 #### Audit: Phase 0
 
@@ -295,19 +303,6 @@ gh issue edit <NUMBER> --add-assignee @me
 
 State your decision clearly: "I'm working on: #[number] [title]. Rationale: [why this is highest priority]."
 
-#### Audit: Phase 1
-
-```bash
-cat >> "$AUDIT_FILE" <<EOF
-
-### Phase 1 — Assessment ($(date -u +%H:%M:%SZ))
-- **Issue selected:** #<NUMBER> — <title>
-- **Issues created:** <list of new issue numbers, or "none">
-- **Health:** <greenfield | healthy | degraded — brief reason>
-- **Outcome:** success
-EOF
-```
-
 #### Approval gate: approve-issue
 
 If `approve-issue` is in `$ACTIVE_GATES`, present the selected issue and rationale to the user:
@@ -319,9 +314,23 @@ If `approve-issue` is in `$ACTIVE_GATES`, present the selected issue and rationa
 >
 > Proceed with planning?
 
-Wait for the user's confirmation. If declined, finalize the audit trail with reason "User declined approve-issue gate" and stop.
+Wait for the user's confirmation. If declined, finalize the audit trail with reason "User declined approve-issue gate" and stop (see **Audit trail on early stop**).
 
 If the gate is not active, continue without pausing.
+
+#### Audit: Phase 1
+
+Write the Phase 1 audit entry only after the approval gate passes (or is not active). Use `printf` to avoid shell injection from untrusted issue titles:
+
+```bash
+{
+  printf '\n### Phase 1 — Assessment (%s)\n' "$(date -u +%H:%M:%SZ)"
+  printf '%s\n' "- **Issue selected:** #<NUMBER> — <title>"
+  printf '%s\n' "- **Issues created:** <list of new issue numbers, or \"none\">"
+  printf '%s\n' "- **Health:** <greenfield | healthy | degraded — brief reason>"
+  printf '%s\n' "- **Outcome:** success"
+} >> "$AUDIT_FILE"
+```
 
 ## Phase 2 — Planning
 
@@ -400,18 +409,6 @@ gh issue comment <PARENT_NUMBER> --body "Subtasks created: #<N1>, #<N2>, #<N3>"
 - Commit plans before starting implementation
 - Every plan task must have a corresponding GitHub issue
 
-#### Audit: Phase 2
-
-```bash
-cat >> "$AUDIT_FILE" <<EOF
-
-### Phase 2 — Planning ($(date -u +%H:%M:%SZ))
-- **Skills used:** <list of superpowers skills invoked>
-- **Subtasks:** <count> issues created (<comma-separated issue numbers>)
-- **Outcome:** success
-EOF
-```
-
 #### Approval gate: approve-plan
 
 If `approve-plan` is in `$ACTIVE_GATES`, present the plan summary and subtask list:
@@ -424,9 +421,26 @@ If `approve-plan` is in `$ACTIVE_GATES`, present the plan summary and subtask li
 >
 > Proceed with implementation?
 
-Wait for the user's confirmation. If declined, finalize the audit trail with reason "User declined approve-plan gate" and stop.
+Wait for the user's confirmation. If declined, finalize the audit trail with reason "User declined approve-plan gate" and stop (see **Audit trail on early stop**).
 
 If the gate is not active, continue without pausing.
+
+#### Audit: Phase 2
+
+Write the Phase 2 audit entry only after the approval gate passes (or is not active):
+
+```bash
+cat >> "$AUDIT_FILE" <<'EOF'
+
+### Phase 2 — Planning
+EOF
+{
+  printf '%s\n' "- **Timestamp:** $(date -u +%H:%M:%SZ)"
+  printf '%s\n' "- **Skills used:** <list of superpowers skills invoked>"
+  printf '%s\n' "- **Subtasks:** <count> issues created (<comma-separated issue numbers>)"
+  printf '%s\n' "- **Outcome:** success"
+} >> "$AUDIT_FILE"
+```
 
 ## Phase 3 — Implementation
 
@@ -436,7 +450,7 @@ Dispatch implementer subagents to do the coding work.
 
 Read the `## Files` and `## Depends On` sections from each subtask issue. Classify each subtask:
 
-- **Independent** — `Depends On` is "None" AND its file list does not overlap with any other independent subtask's file list
+- **Independent** — `Depends On` is "None" AND its file list does not overlap with any other subtask's file list
 - **Dependent** — has an explicit dependency or has file overlaps with another subtask
 
 If two subtasks share any file in their `## Files` lists, treat both as dependent even if `Depends On` says "None".
@@ -456,7 +470,7 @@ Task tool parameters:
   prompt: "[Detailed task description with file paths, plan reference, and constraints]"
 ```
 
-**Dependent subtasks** — dispatch sequentially in dependency order, each with worktree isolation. Wait for each to complete before starting the next.
+**Dependent subtasks** — dispatch sequentially, each with worktree isolation. Use the `Depends On` field when it yields a clear linear chain (e.g., A depends on B depends on C). When dependencies are ambiguous, complex, or cyclic, run all dependent subtasks sequentially in ascending issue number order, ensuring any directly listed dependency runs before its dependents when possible. Wait for each to complete before starting the next.
 
 Provide every implementer with:
 - The specific task from the plan
@@ -901,7 +915,7 @@ Increment the cycle count.
 1. Post a comment on the PR listing all remaining unresolved threads
 2. Update the tracking task to "Stopped — review budget exhausted"
 3. Report to the user: "Review loop stopped after 5 cycles. [N] unresolved threads remain on PR #[NUMBER]. Manual review needed."
-4. Do NOT merge. Stop here.
+4. Do NOT merge. Proceed to Step 8 to record review patterns, then stop.
 
 **Otherwise**, go back to Step 1 (which requests a new review and polls). The loop ends when Copilot's review has zero unresolved threads and CI is green.
 
@@ -928,7 +942,7 @@ git commit -m "chore: record review patterns from PR #$PR_NUMBER"
 
 This file accumulates across runs. Phase 2's "Review pattern constraints" step reads it to avoid repeating the same mistakes.
 
-Proceed to Phase 6.
+After recording review patterns, proceed to Phase 6 if the review was clean. If the review budget was exhausted or the loop stopped for another reason, stop here.
 
 #### Audit: Phase 5
 
@@ -976,6 +990,23 @@ EOF
 )"
 ```
 
+### Approval gate: approve-merge
+
+If `approve-merge` is in `$ACTIVE_GATES`, present the PR status:
+
+> **Approval gate: approve-merge**
+>
+> PR #[number] is ready to merge.
+> - Copilot review: passed (all threads resolved)
+> - CI: green
+> - URL: [PR URL]
+>
+> Merge this PR?
+
+Wait for the user's confirmation. If declined, finalize the audit trail with reason "User declined approve-merge gate" and stop (see **Audit trail on early stop**). The PR remains open for manual handling.
+
+If the gate is not active, continue without pausing.
+
 ### Finalize audit trail
 
 Update the audit file with the final outcome and commit it on the feature branch before merging:
@@ -998,23 +1029,6 @@ git commit -m "chore: finalize autopilot audit trail"
 ```
 
 This commit MUST happen on the feature branch before the squash merge so the audit file is included in the PR.
-
-### Approval gate: approve-merge
-
-If `approve-merge` is in `$ACTIVE_GATES`, present the PR status:
-
-> **Approval gate: approve-merge**
->
-> PR #[number] is ready to merge.
-> - Copilot review: passed (all threads resolved)
-> - CI: green
-> - URL: [PR URL]
->
-> Merge this PR?
-
-Wait for the user's confirmation. If declined, finalize the audit trail with reason "User declined approve-merge gate" and stop. The PR remains open for manual handling.
-
-If the gate is not active, continue without pausing.
 
 ### Merge the PR
 
@@ -1064,11 +1078,11 @@ git add .autopilot/checkpoint.json && git commit -m "chore: update pipeline chec
 
 **If `ISSUES_COMPLETED` >= `MAX_ISSUES`:**
 - Report: "Pipeline complete. [N] issues resolved in this session."
-- Finalize the audit trail and stop
+- Finalize the audit trail and stop (see **Audit trail on early stop**)
 
 **If no more actionable issues remain** (Phase 1 finds nothing to work on):
 - Report: "Pipeline complete. No more actionable issues. [N] issues resolved."
-- Finalize the audit trail and stop
+- Finalize the audit trail and stop (see **Audit trail on early stop**)
 
 ## Safety Rules
 
