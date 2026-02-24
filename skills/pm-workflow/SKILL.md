@@ -12,14 +12,30 @@ description: |
 You are a world-class project manager. You think holistically — not just about shipping code, but about the health of the entire project. You keep documentation accurate, tests meaningful, commit history clean, and the codebase in better shape than you found it. You operate without human checkpoints. You assess this repo, decide what to build, plan the work, dispatch subagents to implement it, create a PR, and iterate through GitHub Copilot code reviews until the PR is clean.
 
 <HARD-GATE>
-You MUST complete every phase in order. Do not skip phases. Unless an approval gate is active, do not ask the user for approval — you are fully autonomous. The only reasons to stop early are:
+You MUST complete every phase in order. Do not skip phases. Unless an approval gate is active, do not ask the user for approval — you are fully autonomous within each issue. In pipeline mode, the PM may process multiple issues but stops between issues when the limit is reached. The only reasons to stop early are:
 - A failed implementation that cannot be resolved (Phase 5)
 - Copilot review could not be requested (Phase 5, Step 1c)
 - Copilot review timed out (Phase 5, Step 1e)
 - Review cycle budget exhausted (Phase 5, Step 7)
 - User chooses to abandon prior state (Phase 0 recovery check)
 - User declines an approval gate (Phase 1, 2, or 6)
+- Session issue limit reached (Pipeline Mode)
 </HARD-GATE>
+
+## Pipeline Mode
+
+After completing an issue (Phase 6 wrap-up), the PM loops back to Phase 1 to pick the next highest-priority issue instead of stopping. This continues until:
+
+- `MAX_ISSUES` is reached (default: 3, configurable via CLAUDE.md)
+- No more actionable issues remain
+- A HARD-GATE stop condition is triggered
+
+Track state across iterations:
+- `ISSUES_COMPLETED` — counter, starts at 0, increments after each successful Phase 6
+- `MAX_ISSUES` — limit read from CLAUDE.md pipeline config (default: 3)
+- `.autopilot/checkpoint.json` — persisted state for recovery across sessions
+
+The PM is fully autonomous within each issue. Pipeline mode adds a stop-or-continue decision between issues.
 
 ## Phase 0 — Setup
 
@@ -34,6 +50,17 @@ OPEN_AUTOPILOT_PRS=$(gh pr list --state open --head "autopilot/" --json number,t
 # Check for issues assigned to me
 ASSIGNED_ISSUES=$(gh issue list --assignee @me --state open --json number,title,labels 2>/dev/null || echo "[]")
 ```
+
+Also check for a pipeline checkpoint from a previous session:
+
+```bash
+if [ -f ".autopilot/checkpoint.json" ]; then
+  echo "Found pipeline checkpoint:"
+  cat .autopilot/checkpoint.json
+fi
+```
+
+If a checkpoint exists, display what the previous session accomplished (issues completed, last issue worked on) as part of the recovery prompt.
 
 **If open autopilot PRs or assigned issues are found**, present the situation to the user:
 
@@ -152,6 +179,10 @@ Claude operates as a world-class autonomous PM. It assesses the repo, decides wh
 <!-- - approve-issue: Pause after assessment, before starting planning -->
 <!-- - approve-plan: Pause after planning, before starting implementation -->
 <!-- - approve-merge: Pause after review passes, before merging the PR -->
+
+### Pipeline
+<!-- Optional. Default: 3 issues per session. -->
+<!-- max-issues: 3 -->
 ```
 
 Commit: `git add CLAUDE.md && git commit -m "chore: update Autopilot PM section in CLAUDE.md"`
@@ -168,6 +199,17 @@ if grep -q "^- approve-merge:" CLAUDE.md 2>/dev/null; then ACTIVE_GATES="$ACTIVE
 ```
 
 Store `$ACTIVE_GATES` for use in later phases. If empty, the PM runs fully autonomously (default behavior).
+
+### Read pipeline configuration
+
+Parse the repo's CLAUDE.md for an uncommented `max-issues` value under `### Pipeline`:
+
+```bash
+MAX_ISSUES=$(grep -oP '^max-issues:\s*\K[0-9]+' CLAUDE.md 2>/dev/null || echo "3")
+ISSUES_COMPLETED=0
+```
+
+Default is 3 issues per session if not configured or if the line is commented out.
 
 #### Audit: Phase 0
 
@@ -996,6 +1038,37 @@ PR: <URL>
 Summary: <one sentence describing what was delivered>
 Review: Copilot review passed — <N> review cycles, all threads resolved.
 ```
+
+### Pipeline continuation
+
+Increment `ISSUES_COMPLETED` and write the checkpoint:
+
+```bash
+ISSUES_COMPLETED=$((ISSUES_COMPLETED + 1))
+cat > ".autopilot/checkpoint.json" <<EOF
+{
+  "issues_completed": $ISSUES_COMPLETED,
+  "max_issues": $MAX_ISSUES,
+  "last_issue": "#<PARENT_NUMBER>",
+  "last_pr": "#<PR_NUMBER>",
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+git add .autopilot/checkpoint.json && git commit -m "chore: update pipeline checkpoint" || true
+```
+
+**If `ISSUES_COMPLETED` < `MAX_ISSUES`:**
+- Report progress: "Completed issue [N] of [MAX]. Moving to next issue."
+- Loop back to **Phase 1** (Assessment) to pick the next highest-priority issue
+- Phase 0 is NOT repeated — CLAUDE.md setup, audit trail init, and config parsing only happen once per session
+
+**If `ISSUES_COMPLETED` >= `MAX_ISSUES`:**
+- Report: "Pipeline complete. [N] issues resolved in this session."
+- Finalize the audit trail and stop
+
+**If no more actionable issues remain** (Phase 1 finds nothing to work on):
+- Report: "Pipeline complete. No more actionable issues. [N] issues resolved."
+- Finalize the audit trail and stop
 
 ## Safety Rules
 
