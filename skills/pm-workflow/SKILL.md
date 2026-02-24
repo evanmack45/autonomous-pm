@@ -329,7 +329,15 @@ Subtask of #<PARENT_NUMBER>
 <what this subtask covers>
 
 ## Files
-<expected files to create or modify>
+List every file this subtask will create or modify. Be explicit — this is used
+to detect conflicts between parallel subtasks.
+- <path/to/file1> (create | modify)
+- <path/to/file2> (create | modify)
+
+## Depends On
+List other subtask titles this must wait for, or "None" if independent.
+When in doubt, mark as dependent — sequential is always safe.
+- <subtask title> (or "None")
 
 ---
 *Created by Autopilot PM*
@@ -382,9 +390,22 @@ If the gate is not active, continue without pausing.
 
 Dispatch implementer subagents to do the coding work.
 
+### Dependency analysis
+
+Read the `## Files` and `## Depends On` sections from each subtask issue. Classify each subtask:
+
+- **Independent** — `Depends On` is "None" AND its file list does not overlap with any other independent subtask's file list
+- **Dependent** — has an explicit dependency or has file overlaps with another subtask
+
+If two subtasks share any file in their `## Files` lists, treat both as dependent even if `Depends On` says "None".
+
 ### Dispatching
 
-Use the Task tool to spawn implementer agents:
+**Independent subtasks** — dispatch all in a single message using parallel Task tool calls, each with worktree isolation:
+
+<HARD-GATE>
+Independent subtasks MUST be dispatched in parallel (multiple Task calls in one message). Do NOT run them sequentially.
+</HARD-GATE>
 
 ```
 Task tool parameters:
@@ -393,12 +414,33 @@ Task tool parameters:
   prompt: "[Detailed task description with file paths, plan reference, and constraints]"
 ```
 
-Provide each implementer with:
+**Dependent subtasks** — dispatch sequentially in dependency order, each with worktree isolation. Wait for each to complete before starting the next.
+
+Provide every implementer with:
 - The specific task from the plan
 - The GitHub issue number for this subtask
 - Relevant file paths
 - Which superpowers skills to use (TDD, verification-before-completion)
 - The repo's conventions from CLAUDE.md
+- Any review pattern constraints from Phase 2
+
+### Merge results
+
+After all subtasks complete (parallel and sequential), merge their worktree branches into the working branch:
+
+```bash
+for BRANCH in <list of subtask worktree branches>; do
+  git merge "$BRANCH" --no-edit || {
+    echo "Conflict merging $BRANCH — resolving..."
+    # PM resolves conflicts manually, then:
+    git add . && git commit --no-edit
+  }
+done
+```
+
+If merge conflicts occur, resolve them and run the full test suite to confirm nothing broke.
+
+Run the full test suite once after all branches are merged, before proceeding to the quality gate.
 
 ### Progress tracking
 
