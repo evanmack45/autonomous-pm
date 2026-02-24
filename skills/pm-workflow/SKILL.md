@@ -296,6 +296,14 @@ Choose superpowers skills based on task complexity.
 | Test coverage gap | `superpowers:test-driven-development` directly |
 | Documentation | Skip planning, write directly |
 
+### Review pattern constraints
+
+Check for `.autopilot/review-patterns.md`. If it exists, read it and identify the top 3 most frequently flagged categories — only those appearing across 2 or more PRs count.
+
+Include these as explicit constraints in every implementer dispatch prompt. For example, if "missing null checks" appears in 3 past PRs, add: "Constraint from past reviews: always add null checks for external inputs."
+
+If the file does not exist or has no cross-PR patterns, skip this step.
+
 ### Autonomous brainstorming
 
 The `superpowers:brainstorming` skill is designed for interactive use — it asks clarifying questions one at a time and waits for user approval at each step. Since you are an autonomous PM, you MUST answer these questions yourself instead of waiting for user input.
@@ -813,7 +821,30 @@ Increment the cycle count.
 
 **Otherwise**, go back to Step 1 (which requests a new review and polls). The loop ends when Copilot's review has zero unresolved threads and CI is green.
 
-When clean: mark the tracking task as completed and proceed to Phase 6.
+When clean: mark the tracking task as completed.
+
+### Step 8: Extract review patterns
+
+After the review loop concludes (regardless of outcome — clean, budget exhausted, or stopped), categorize all Copilot comments from this PR by type (e.g., "null check", "error handling", "naming", "performance", "security", "style").
+
+Append a summary entry to `.autopilot/review-patterns.md` (create the file if it does not exist):
+
+```bash
+cat >> ".autopilot/review-patterns.md" <<EOF
+
+## PR #$PR_NUMBER — $(date -u +%Y-%m-%d)
+| Category | Count | Example |
+|----------|-------|---------|
+| <category> | <N> | <brief example from this PR> |
+EOF
+
+git add .autopilot/review-patterns.md
+git commit -m "chore: record review patterns from PR #$PR_NUMBER"
+```
+
+This file accumulates across runs. Phase 2's "Review pattern constraints" step reads it to avoid repeating the same mistakes.
+
+Proceed to Phase 6.
 
 #### Audit: Phase 5
 
