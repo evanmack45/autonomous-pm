@@ -120,34 +120,34 @@ Read the repo to understand what exists and decide what to work on.
 
 ### Information gathering
 
-Run these in parallel:
+Dispatch these as **parallel Task tool calls in a single message** — they are independent and MUST run concurrently:
 
-1. **Project context:**
-   - Read `CLAUDE.md` for conventions and existing PM section
-   - Read `README.md` for project description
-   - Read files in `docs/` for documentation
-   - Check `docs/plans/` for existing designs or specs
+**Task 1 — Project context** (subagent_type: "Explore"):
+- Read `CLAUDE.md` for conventions and existing PM section
+- Read `README.md` for project description
+- Read files in `docs/` for documentation
+- Check `docs/plans/` for existing designs or specs
 
-2. **Recent activity:**
-   - `git log --oneline -20` for recent commits
-   - `git branch -a` for active branches
-   - `gh pr list --state open` for open PRs
+**Task 2 — Git activity and open work** (subagent_type: "Bash"):
+- `git log --oneline -20` for recent commits
+- `git branch -a` for active branches
+- `gh pr list --state open` for open PRs
+- `gh issue list --state open --limit 20` for GitHub issues
 
-3. **Open work:**
-   - `gh issue list --state open --limit 20` for GitHub issues
-   - Look for TODO/FIXME comments in codebase
+**Task 3 — CI and codebase health** (subagent_type: "Bash"):
+- Check `.github/workflows/` for CI workflow files
+- Check if CI is currently passing on main: `gh run list --branch main --limit 5`
+- Look for TODO/FIXME comments in codebase (use `grep -r "TODO\|FIXME" --include="*.{ts,js,py,rb,go,rs}" -l` or equivalent)
+- Run the test suite if one exists
 
-4. **CI and automation:**
-   - Check `.github/workflows/` for CI workflow files
-   - Understand what the CI does (tests, linting, type checking, build, deploy)
-   - Note which checks are required vs optional
-   - Check if CI is currently passing on main: `gh run list --branch main --limit 5`
+<HARD-GATE>
+You MUST dispatch all three tasks in a single message using multiple Task tool calls. Do NOT run them sequentially.
+</HARD-GATE>
 
-5. **Overall state:**
-   - Is this a greenfield project (few files, no tests)?
-   - Is this a mature codebase with established patterns?
-   - Are there failing tests? (run test suite if one exists)
-   - Is CI passing on main? If not, fixing CI may be the highest-priority task
+After all three tasks return, synthesize the results to answer:
+- Is this a greenfield project or a mature codebase?
+- Are there failing tests or broken CI? (If so, fixing this may be highest priority)
+- What's the overall project health?
 
 ### Create issues for identified work
 
@@ -578,20 +578,24 @@ For each comment, follow the external reviewer protocol:
 
 ### Step 4: Address comments
 
-For each actionable comment, dispatch an implementer subagent to fix the code:
+For each actionable comment, dispatch an implementer subagent to fix the code.
+
+Review fixes run on the PR branch directly (no worktree isolation). Unlike Phase 3 implementation tasks, review fixes are small, atomic changes to specific lines. Worktree isolation would require merge-back coordination for each fix, adding overhead that exceeds the risk. To prevent conflicts, dispatch review-fix implementers **sequentially** — one at a time, not in parallel.
 
 ```
 Task tool parameters:
   subagent_type: "autopilot:implementer"
-  (no isolation — work on PR branch directly)
   prompt: "Fix this Copilot review comment:
     File: <path>
     Line: <number>
     Comment: <body>
+    Thread node ID: <thread_id>
+    Comment database ID: <comment_id>
 
     After fixing:
     1. Run tests to verify no regressions
-    2. Report what you changed"
+    2. Reply in the comment thread
+    3. Report back with: status, files_changed, test_result, summary"
 ```
 
 For comments the PM pushes back on, reply in the thread with technical reasoning:
@@ -606,12 +610,28 @@ gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments/$COMMENT_ID/replies \
 After ALL fixes are committed and ALL replies are posted, the PM MUST resolve every addressed thread. Do not skip this step.
 </HARD-GATE>
 
-For EACH addressed thread (both fixed and pushed-back), resolve it:
+Resolve all addressed threads (both fixed and pushed-back) in a single batch. Collect the thread node IDs from Step 2 and resolve them in one shell invocation:
+
 ```bash
-gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: "<THREAD_NODE_ID>"}) { thread { isResolved } } }'
+THREAD_IDS=("<THREAD_NODE_ID_1>" "<THREAD_NODE_ID_2>" "<THREAD_NODE_ID_3>")
+FAILED=()
+for THREAD_ID in "${THREAD_IDS[@]}"; do
+  RESULT=$(gh api graphql -f query="mutation { resolveReviewThread(input: {threadId: \"$THREAD_ID\"}) { thread { isResolved } } }" 2>&1)
+  if echo "$RESULT" | grep -q '"isResolved":true'; then
+    echo "Resolved: $THREAD_ID"
+  else
+    echo "FAILED to resolve: $THREAD_ID — $RESULT"
+    FAILED+=("$THREAD_ID")
+  fi
+done
+if [ ${#FAILED[@]} -gt 0 ]; then
+  echo "WARNING: ${#FAILED[@]} thread(s) failed to resolve: ${FAILED[*]}"
+  exit 1
+fi
+echo "All ${#THREAD_IDS[@]} threads resolved successfully"
 ```
 
-The thread node IDs come from the GraphQL query in Step 2. Resolve threads one at a time. Verify each resolution succeeded by checking `isResolved: true` in the response.
+If any threads fail to resolve, report the specific failures. Do not silently continue — resolution failures must be visible.
 
 ### Step 6: Commit, push, and verify CI
 
@@ -717,6 +737,41 @@ If a subagent **cannot fix** a Copilot comment (tests break, unclear requirement
 - Reply in the thread: "Unable to resolve this automatically. [Explanation of what was tried and why it failed]."
 - **Stop the loop.** This needs human attention.
 - Report: "Review loop stopped. Comment [ID] in [file] could not be resolved. [Summary of the problem]."
+
+### GitHub API error handling
+
+All `gh api` and `gh` CLI calls can fail. For critical operations, use this retry pattern:
+
+```bash
+MAX_RETRIES=3
+RETRY_DELAY=5
+for ATTEMPT in $(seq 1 $MAX_RETRIES); do
+  RESULT=$(gh api <endpoint> <args> 2>&1) && break
+  echo "Attempt $ATTEMPT/$MAX_RETRIES failed: $RESULT"
+  if echo "$RESULT" | grep -q "rate limit\|429"; then
+    echo "Rate limited. Waiting 60 seconds..."
+    sleep 60
+  elif echo "$RESULT" | grep -q "401\|403\|authentication"; then
+    echo "FATAL: Authentication failure. Run 'gh auth status' to check credentials."
+    exit 1
+  else
+    sleep $RETRY_DELAY
+    RETRY_DELAY=$((RETRY_DELAY * 2))
+  fi
+done
+```
+
+Apply this pattern to these critical operations:
+- **Copilot review request** (Phase 5, Step 1c) — already has scripted retry
+- **Thread resolution** (Phase 5, Step 5) — the batch script handles failures per-thread
+- **PR creation** (Phase 4) — retry on transient failure, fail on auth errors
+- **Issue creation** (Phases 1-2) — retry on transient failure
+
+Auth failures (401/403) are always fatal — do not retry. Report: "GitHub authentication failed. Run `gh auth status` to verify credentials."
+
+Rate limit responses (429) get a 60-second wait before retry.
+
+All other failures get exponential backoff (5s, 10s, 20s) up to 3 attempts.
 
 ### General
 
