@@ -1075,7 +1075,7 @@ git add .autopilot/checkpoint.json && git commit -m "chore: update pipeline chec
 **If `ISSUES_COMPLETED` < `MAX_ISSUES`:**
 - Report progress: "Completed issue [N] of [MAX]. Moving to next issue."
 - Loop back to **Phase 1** (Assessment) to pick the next highest-priority issue
-- Phase 0 is NOT repeated — CLAUDE.md setup, audit trail init, and config parsing only happen once per session
+- Phase 0 is NOT repeated — CLAUDE.md setup, audit trail initialization (including `AUDIT_FILE`), and config parsing only happen once per session. The `AUDIT_FILE` variable MUST be preserved and reused for audit entries across all subsequent issues
 
 **If `ISSUES_COMPLETED` >= `MAX_ISSUES`:**
 - Report: "Pipeline complete. [N] issues resolved in this session."
