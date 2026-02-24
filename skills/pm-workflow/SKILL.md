@@ -927,14 +927,15 @@ After the review loop concludes (regardless of outcome — clean, budget exhaust
 
 Append a summary entry to `.autopilot/review-patterns.md` (create the file if it does not exist):
 
-```bash
-cat >> ".autopilot/review-patterns.md" <<EOF
+Use `printf` to avoid shell injection from untrusted review comment text in the Example column:
 
-## PR #$PR_NUMBER — $(date -u +%Y-%m-%d)
-| Category | Count | Example |
-|----------|-------|---------|
-| <category> | <N> | <brief example from this PR> |
-EOF
+```bash
+{
+  printf '\n## PR #%s — %s\n' "$PR_NUMBER" "$(date -u +%Y-%m-%d)"
+  printf '%s\n' "| Category | Count | Example |"
+  printf '%s\n' "|----------|-------|---------|"
+  printf '%s\n' "| <category> | <N> | <brief example from this PR> |"
+} >> ".autopilot/review-patterns.md"
 
 git add .autopilot/review-patterns.md
 git commit -m "chore: record review patterns from PR #$PR_NUMBER"
