@@ -167,7 +167,7 @@ Claude operates as a world-class autonomous PM. It assesses the repo, decides wh
 ### Rules
 - Never skip the receiving-code-review skill when processing Copilot feedback
 - Never use the requesting-code-review skill (Copilot handles review)
-- One task at a time — finish the full cycle before starting the next
+- One issue at a time — finish the full cycle before starting the next (in pipeline mode, continues to the next issue after completing each cycle)
 - Pushback deadlocks: if Copilot re-raises the same issue after pushback, resolve and move on
 - Failed implementations: reply in thread explaining failure and stop the loop
 - Documentation must be updated before creating a PR
@@ -193,9 +193,9 @@ Parse the repo's CLAUDE.md for uncommented gates under `### Approval Gates`. A g
 
 ```bash
 ACTIVE_GATES=""
-if grep -q "^- approve-issue:" CLAUDE.md 2>/dev/null; then ACTIVE_GATES="$ACTIVE_GATES approve-issue"; fi
-if grep -q "^- approve-plan:" CLAUDE.md 2>/dev/null; then ACTIVE_GATES="$ACTIVE_GATES approve-plan"; fi
-if grep -q "^- approve-merge:" CLAUDE.md 2>/dev/null; then ACTIVE_GATES="$ACTIVE_GATES approve-merge"; fi
+if grep -q "^[[:space:]]*- approve-issue:" CLAUDE.md 2>/dev/null; then ACTIVE_GATES="$ACTIVE_GATES approve-issue"; fi
+if grep -q "^[[:space:]]*- approve-plan:" CLAUDE.md 2>/dev/null; then ACTIVE_GATES="$ACTIVE_GATES approve-plan"; fi
+if grep -q "^[[:space:]]*- approve-merge:" CLAUDE.md 2>/dev/null; then ACTIVE_GATES="$ACTIVE_GATES approve-merge"; fi
 ```
 
 Store `$ACTIVE_GATES` for use in later phases. If empty, the PM runs fully autonomously (default behavior).
@@ -932,11 +932,12 @@ Append a summary entry to `.autopilot/review-patterns.md` (create the file if it
 Use `printf` to avoid shell injection from untrusted review comment text in the Example column:
 
 ```bash
+EXAMPLE_TEXT="<brief example from this PR>"  # assign untrusted value to variable first
 {
   printf '\n## PR #%s — %s\n' "$PR_NUMBER" "$(date -u +%Y-%m-%d)"
   printf '%s\n' "| Category | Count | Example |"
   printf '%s\n' "|----------|-------|---------|"
-  printf '%s\n' "| <category> | <N> | <brief example from this PR> |"
+  printf '| %s | %s | %s |\n' "<category>" "<N>" "$EXAMPLE_TEXT"
 } >> ".autopilot/review-patterns.md"
 
 git add .autopilot/review-patterns.md
