@@ -66,11 +66,21 @@ Read the repo's CLAUDE.md (or create one if none exists). Check for an `## Autop
 
 **Current version: v2**
 
-**If the section does NOT exist**, OR if the version marker is missing or lower than v2: write (or replace) the section with the content below.
-
 **If the section exists AND contains `<!-- autopilot-version: v2 -->`**: Skip to Phase 1.
 
+**If the section does NOT exist**, OR if the version marker is missing or lower than v2: show the user what will be added and ask for confirmation before writing.
+
+> Autopilot needs to add a configuration section to this repo's CLAUDE.md. This tells future sessions how the PM operates. Here's what will be added:
+>
+> `## Autopilot PM` — workflow description, task tracking rules, and PM constraints (~30 lines)
+>
+> OK to add this?
+
+Wait for the user to confirm. If they decline, stop and explain that the PM requires this section to operate.
+
 ### Writing/updating the section
+
+After the user confirms:
 
 If the CLAUDE.md has no `## Autopilot PM` section, append the block below.
 
