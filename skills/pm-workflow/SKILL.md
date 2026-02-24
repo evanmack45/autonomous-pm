@@ -60,6 +60,30 @@ Wait for the user's choice.
 
 **If no prior state is found**, continue with setup below.
 
+### Audit trail
+
+Create the audit directory and initialize a run log:
+
+```bash
+mkdir -p .autopilot/runs
+AUDIT_FILE=".autopilot/runs/$(date +%Y%m%d-%H%M%S).md"
+cat > "$AUDIT_FILE" <<EOF
+# Autopilot Run — $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+- **Started:** $(date -u +%Y-%m-%dT%H:%M:%SZ)
+- **Status:** in-progress
+EOF
+```
+
+Each phase appends a structured entry to `$AUDIT_FILE`:
+
+```markdown
+### Phase N — Name (timestamp)
+- **Decision:** what was decided and why
+- **Result:** outcome or API response summary
+- **Outcome:** success | failure | skipped
+```
+
 ### CLAUDE.md setup
 
 Read the repo's CLAUDE.md (or create one if none exists). Check for an `## Autopilot PM` section and its version marker.
@@ -123,6 +147,18 @@ Claude operates as a world-class autonomous PM. It assesses the repo, decides wh
 ```
 
 Commit: `git add CLAUDE.md && git commit -m "chore: update Autopilot PM section in CLAUDE.md"`
+
+#### Audit: Phase 0
+
+```bash
+cat >> "$AUDIT_FILE" <<EOF
+
+### Phase 0 — Setup ($(date -u +%H:%M:%SZ))
+- **Recovery:** <action taken — resumed / abandoned / no prior state>
+- **CLAUDE.md:** <created | updated to vN | already current>
+- **Outcome:** success
+EOF
+```
 
 ## Phase 1 — Assessment
 
@@ -196,6 +232,19 @@ gh issue edit <NUMBER> --add-assignee @me
 
 State your decision clearly: "I'm working on: #[number] [title]. Rationale: [why this is highest priority]."
 
+#### Audit: Phase 1
+
+```bash
+cat >> "$AUDIT_FILE" <<EOF
+
+### Phase 1 — Assessment ($(date -u +%H:%M:%SZ))
+- **Issue selected:** #<NUMBER> — <title>
+- **Issues created:** <list of new issue numbers, or "none">
+- **Health:** <greenfield | healthy | degraded — brief reason>
+- **Outcome:** success
+EOF
+```
+
 ## Phase 2 — Planning
 
 Choose superpowers skills based on task complexity.
@@ -256,6 +305,18 @@ gh issue comment <PARENT_NUMBER> --body "Subtasks created: #<N1>, #<N2>, #<N3>"
 - Write implementation plans to `docs/plans/` when using writing-plans
 - Commit plans before starting implementation
 - Every plan task must have a corresponding GitHub issue
+
+#### Audit: Phase 2
+
+```bash
+cat >> "$AUDIT_FILE" <<EOF
+
+### Phase 2 — Planning ($(date -u +%H:%M:%SZ))
+- **Skills used:** <list of superpowers skills invoked>
+- **Subtasks:** <count> issues created (<comma-separated issue numbers>)
+- **Outcome:** success
+EOF
+```
 
 ## Phase 3 — Implementation
 
@@ -354,6 +415,18 @@ After all four checks pass, comment on the parent issue:
 gh issue comment <PARENT_NUMBER> --body "All subtasks complete. Quality gate passed: tests green, acceptance criteria met, scope verified, documentation updated. Creating PR."
 ```
 
+#### Audit: Phase 3
+
+```bash
+cat >> "$AUDIT_FILE" <<EOF
+
+### Phase 3 — Implementation ($(date -u +%H:%M:%SZ))
+- **Subtasks completed:** <list of subtask numbers and status>
+- **Quality gate:** passed
+- **Outcome:** success
+EOF
+```
+
 ## Phase 4 — PR Creation
 
 ### Conflict and dependency check
@@ -434,6 +507,19 @@ Before creating the PR, make sure the branch can merge cleanly:
    If the repo has no CI workflows, skip this step.
 
 5. Proceed to Phase 5. The review loop handles requesting Copilot review.
+
+#### Audit: Phase 4
+
+```bash
+cat >> "$AUDIT_FILE" <<EOF
+
+### Phase 4 — PR Creation ($(date -u +%H:%M:%SZ))
+- **PR:** #<PR_NUMBER>
+- **CI status:** <green | fixed after N attempts | no CI>
+- **Conflicts:** <none | resolved>
+- **Outcome:** success
+EOF
+```
 
 ## Phase 5 — Copilot Review Loop
 
@@ -677,6 +763,19 @@ Increment the cycle count.
 
 When clean: mark the tracking task as completed and proceed to Phase 6.
 
+#### Audit: Phase 5
+
+```bash
+cat >> "$AUDIT_FILE" <<EOF
+
+### Phase 5 — Copilot Review Loop ($(date -u +%H:%M:%SZ))
+- **Review cycles:** <count>
+- **Threads per cycle:** <comma-separated counts>
+- **Final status:** <clean | stopped — reason>
+- **Outcome:** success | stopped
+EOF
+```
+
 ## Phase 6 — Wrap-up
 
 After the PR passes Copilot review with zero unresolved threads, close the loop properly.
@@ -709,6 +808,29 @@ gh issue comment <PARENT_NUMBER> --body "$(cat <<'EOF'
 EOF
 )"
 ```
+
+### Finalize audit trail
+
+Update the audit file with the final outcome and commit it on the feature branch before merging:
+
+```bash
+cat >> "$AUDIT_FILE" <<EOF
+
+### Phase 6 — Wrap-up ($(date -u +%H:%M:%SZ))
+- **Merge status:** merged
+- **Branch cleanup:** deleted
+- **Outcome:** success
+
+---
+- **Completed:** $(date -u +%Y-%m-%dT%H:%M:%SZ)
+- **Status:** completed
+EOF
+
+git add .autopilot/runs/
+git commit -m "chore: finalize autopilot audit trail"
+```
+
+This commit MUST happen on the feature branch before the squash merge so the audit file is included in the PR.
 
 ### Merge the PR
 
@@ -782,6 +904,24 @@ Auth failures (401/403) are always fatal — do not retry. Report: "GitHub authe
 Rate limit responses (429) get a 60-second wait before retry.
 
 All other failures get exponential backoff (5s, 10s, 20s) up to 3 attempts.
+
+### Audit trail on early stop
+
+If the run stops early for any HARD-GATE reason, finalize the audit file before stopping:
+
+```bash
+cat >> "$AUDIT_FILE" <<EOF
+
+---
+- **Completed:** $(date -u +%Y-%m-%dT%H:%M:%SZ)
+- **Status:** failed
+- **Failure reason:** <reason for early stop>
+EOF
+
+git add .autopilot/runs/ && git commit -m "chore: finalize autopilot audit trail (failed)" || true
+```
+
+The `|| true` ensures the stop is not blocked if the commit fails (e.g., no changes staged).
 
 ### General
 
