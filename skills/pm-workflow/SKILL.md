@@ -60,7 +60,7 @@ Each phase appends a structured entry to `$AUDIT_FILE`:
 ### Phase N — Name (timestamp)
 - **Decision:** what was decided and why
 - **Result:** outcome or API response summary
-- **Outcome:** success | failure | skipped
+- **Outcome:** success | failure | skipped | stopped
 ```
 
 ### Recovery check
@@ -189,23 +189,25 @@ Commit: `git add CLAUDE.md && git commit -m "chore: update Autopilot PM section 
 
 ### Read approval gate configuration
 
-Parse the repo's CLAUDE.md for uncommented gates under `### Approval Gates`. A gate is active if its line appears without the `<!-- -->` comment wrapper:
+Parse the repo's CLAUDE.md for uncommented gates under `### Approval Gates`. Extract only the relevant section (between `### Approval Gates` and the next `###` heading) to avoid false matches elsewhere in the file:
 
 ```bash
+GATES_SECTION=$(sed -n '/^### Approval Gates/,/^### /p' CLAUDE.md 2>/dev/null)
 ACTIVE_GATES=""
-if grep -q "^[[:space:]]*- approve-issue:" CLAUDE.md 2>/dev/null; then ACTIVE_GATES="$ACTIVE_GATES approve-issue"; fi
-if grep -q "^[[:space:]]*- approve-plan:" CLAUDE.md 2>/dev/null; then ACTIVE_GATES="$ACTIVE_GATES approve-plan"; fi
-if grep -q "^[[:space:]]*- approve-merge:" CLAUDE.md 2>/dev/null; then ACTIVE_GATES="$ACTIVE_GATES approve-merge"; fi
+if echo "$GATES_SECTION" | grep -q "^[[:space:]]*- approve-issue:"; then ACTIVE_GATES="$ACTIVE_GATES approve-issue"; fi
+if echo "$GATES_SECTION" | grep -q "^[[:space:]]*- approve-plan:"; then ACTIVE_GATES="$ACTIVE_GATES approve-plan"; fi
+if echo "$GATES_SECTION" | grep -q "^[[:space:]]*- approve-merge:"; then ACTIVE_GATES="$ACTIVE_GATES approve-merge"; fi
 ```
 
 Store `$ACTIVE_GATES` for use in later phases. If empty, the PM runs fully autonomously (default behavior).
 
 ### Read pipeline configuration
 
-Parse the repo's CLAUDE.md for an uncommented `max-issues` value under `### Pipeline`:
+Extract the `### Pipeline` section and parse `max-issues` within it to avoid false matches elsewhere:
 
 ```bash
-MAX_ISSUES=$(sed -n 's/^max-issues:[[:space:]]*\([0-9][0-9]*\).*/\1/p' CLAUDE.md 2>/dev/null)
+PIPELINE_SECTION=$(sed -n '/^### Pipeline/,/^### /p' CLAUDE.md 2>/dev/null)
+MAX_ISSUES=$(echo "$PIPELINE_SECTION" | sed -n 's/^max-issues:[[:space:]]*\([0-9][0-9]*\).*/\1/p' 2>/dev/null)
 MAX_ISSUES=${MAX_ISSUES:-3}
 ISSUES_COMPLETED=0
 
@@ -1020,17 +1022,29 @@ cat >> "$AUDIT_FILE" <<EOF
 - **Merge status:** merged
 - **Branch cleanup:** deleted
 - **Outcome:** success
-
----
-- **Completed:** $(date -u +%Y-%m-%dT%H:%M:%SZ)
-- **Status:** completed
 EOF
+```
 
-git add .autopilot/runs/
+Do NOT write the run-level footer (`Completed`/`Status`) here — in pipeline mode, the session continues to the next issue. The run-level footer is written once at session end (see **Pipeline continuation** and **Audit trail on early stop**).
+
+Update the pipeline checkpoint before committing, so it lands on main via the squash merge (enabling cross-session recovery):
+
+```bash
+ISSUES_COMPLETED=$((ISSUES_COMPLETED + 1))
+CHECKPOINT_TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+printf '{\n  "issues_completed": %d,\n  "max_issues": %d,\n  "last_issue": "#%s",\n  "last_pr": "#%s",\n  "timestamp": "%s"\n}\n' \
+  "$ISSUES_COMPLETED" "$MAX_ISSUES" "<PARENT_NUMBER>" "<PR_NUMBER>" "$CHECKPOINT_TS" \
+  > ".autopilot/checkpoint.json"
+```
+
+Commit both the audit trail and checkpoint together on the feature branch before merging:
+
+```bash
+git add .autopilot/runs/ .autopilot/checkpoint.json
 git commit -m "chore: finalize autopilot audit trail"
 ```
 
-This commit MUST happen on the feature branch before the squash merge so the audit file is included in the PR.
+This commit MUST happen on the feature branch before the squash merge so both files are included in the PR.
 
 ### Merge the PR
 
@@ -1057,16 +1071,7 @@ Review: Copilot review passed — <N> review cycles, all threads resolved.
 
 ### Pipeline continuation
 
-Increment `ISSUES_COMPLETED` and write the checkpoint:
-
-```bash
-ISSUES_COMPLETED=$((ISSUES_COMPLETED + 1))
-CHECKPOINT_TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-printf '{\n  "issues_completed": %d,\n  "max_issues": %d,\n  "last_issue": "#%s",\n  "last_pr": "#%s",\n  "timestamp": "%s"\n}\n' \
-  "$ISSUES_COMPLETED" "$MAX_ISSUES" "<PARENT_NUMBER>" "<PR_NUMBER>" "$CHECKPOINT_TS" \
-  > ".autopilot/checkpoint.json"
-git add .autopilot/checkpoint.json && git commit -m "chore: update pipeline checkpoint" || true
-```
+`ISSUES_COMPLETED` was already incremented and the checkpoint was committed in the audit finalization step above.
 
 **If `ISSUES_COMPLETED` < `MAX_ISSUES`:**
 - Report progress: "Completed issue [N] of [MAX]. Moving to next issue."
@@ -1075,11 +1080,21 @@ git add .autopilot/checkpoint.json && git commit -m "chore: update pipeline chec
 
 **If `ISSUES_COMPLETED` >= `MAX_ISSUES`:**
 - Report: "Pipeline complete. [N] issues resolved in this session."
-- Finalize the audit trail and stop (see **Audit trail on early stop**)
+- Write the run-level footer to finalize the audit trail:
+
+```bash
+{
+  printf '\n---\n'
+  printf '- **Completed:** %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf '- **Status:** completed\n'
+  printf '- **Issues resolved:** %d of %d\n' "$ISSUES_COMPLETED" "$MAX_ISSUES"
+} >> "$AUDIT_FILE"
+git add .autopilot/runs/ && git commit -m "chore: finalize autopilot audit trail (session complete)" || true
+```
 
 **If no more actionable issues remain** (Phase 1 finds nothing to work on):
 - Report: "Pipeline complete. No more actionable issues. [N] issues resolved."
-- Finalize the audit trail and stop (see **Audit trail on early stop**)
+- Write the same run-level footer as above, then stop
 
 ## Safety Rules
 
@@ -1138,8 +1153,11 @@ If the run stops early for any HARD-GATE reason, finalize the audit file before 
 Use `Status: stopped` for intentional exits (approval gate declined, session limit reached, pipeline complete). Use `Status: failed` for error exits (implementation failure, Copilot timeout, review budget exhausted).
 
 ```bash
-STOP_STATUS='<stopped | failed>'  # single-quoted: PM-determined value
-STOP_REASON='<reason for early stop>'  # single-quoted: may include CI output, prevents shell interpretation
+STOP_STATUS='<stopped | failed>'
+STOP_REASON=$(cat <<'REASON'
+<reason for early stop — may contain quotes, CI output, or other arbitrary text>
+REASON
+)
 {
   printf '\n---\n'
   printf '- **Completed:** %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
