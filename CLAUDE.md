@@ -25,7 +25,7 @@ This plugin is installed in three locations. A post-commit hook (`.git/hooks/pos
 2. **Local marketplace** (synced by hook) — `~/.claude/plugins/local-marketplace/plugins/autopilot/`
 3. **Plugin cache** (synced by hook) — `~/.claude/plugins/cache/local-plugins/autopilot/0.1.0/`
 
-If the hook is missing (e.g., fresh clone), recreate it by copying `.git/hooks/post-commit` from the repo or running the setup steps in the plan.
+If the hook is missing (e.g., after a fresh clone), recreate it manually by following the post-commit hook setup steps in `docs/plans/2026-02-25-plugin-sync-review-patterns-scope-pushback.md`. Git hooks are not version-controlled and won't be present after `git clone`.
 
 ## Dependencies
 
