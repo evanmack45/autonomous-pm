@@ -266,7 +266,7 @@ You MUST dispatch all three tasks in a single message using multiple Task tool c
 After all three tasks return, synthesize the results to answer:
 - Is this a greenfield project or a mature codebase?
 - Are there failing tests or broken CI? (If so, fixing this may be highest priority)
-- Does the repo have CI workflows? If not, set `NEEDS_CI=true` for Phase 4 to handle
+- Does the repo have CI workflows? If yes, set `NEEDS_CI=false`. If not, set `NEEDS_CI=true` for Phase 4 to handle
 - What's the overall project health?
 
 ### Create issues for identified work
@@ -692,7 +692,7 @@ Before creating the PR, make sure the branch can merge cleanly:
 
    If the repo has no CI workflows and `NEEDS_CI` was not set, skip this step.
 
-5. Proceed to Phase 5. The review loop handles requesting Copilot review.
+6. Proceed to Phase 5. The review loop handles requesting Copilot review.
 
 #### Audit: Phase 4
 
