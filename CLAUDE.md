@@ -19,13 +19,13 @@ The PM creates a `.autopilot/` directory in target repos to store:
 
 ## Plugin Installation
 
-This plugin is installed in three locations. ALL THREE must be updated when files change:
+This plugin is installed in three locations. A post-commit hook (`.git/hooks/post-commit`) automatically syncs all plugin files after every commit:
 
-1. **Source repo** — `/Users/evanmcmillan/Projects/autonomous-pm/`
-2. **Local marketplace** — `~/.claude/plugins/local-marketplace/plugins/autopilot/`
-3. **Plugin cache** — `~/.claude/plugins/cache/local-plugins/autopilot/0.1.0/`
+1. **Source repo** (you edit here) — `~/Projects/autonomous-pm/`
+2. **Local marketplace** (synced by hook) — `~/.claude/plugins/local-marketplace/plugins/autopilot/`
+3. **Plugin cache** (synced by hook) — `~/.claude/plugins/cache/local-plugins/autopilot/0.1.0/`
 
-After editing any file in the source repo, copy changed files to both other locations. Claude Code loads from the cache, not the source repo.
+If the hook is missing (e.g., fresh clone), recreate it by copying `.git/hooks/post-commit` from the repo or running the setup steps in the plan.
 
 ## Dependencies
 
