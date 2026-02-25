@@ -8,6 +8,8 @@
 
 **Tech Stack:** Bash (git hooks), Markdown (skill/agent prompts)
 
+**Status:** All three tasks have been implemented and merged to main. This plan is retained as an archival reference.
+
 ---
 
 ## Task 1: Automate Plugin Sync (Issue #25)
@@ -81,7 +83,7 @@ This plugin is installed in three locations. A post-commit hook (`.git/hooks/pos
 2. **Local marketplace** (synced by hook) — `~/.claude/plugins/local-marketplace/plugins/autopilot/`
 3. **Plugin cache** (synced by hook) — `~/.claude/plugins/cache/local-plugins/autopilot/0.1.0/`
 
-If the hook is missing (e.g., fresh clone), recreate it by copying `.git/hooks/post-commit` from the repo or running the setup steps in the plan.
+If the hook is missing (e.g., after a fresh clone), recreate it manually by following the post-commit hook setup steps in this plan. Git hooks live under `.git/hooks` and are not version-controlled, so this file will not be present after `git clone`.
 ```
 
 ### Step 5: Commit
@@ -107,7 +109,7 @@ Expected: `MATCH`
 
 In `skills/pm-workflow/SKILL.md`, find the section starting at line 354 ("### Review pattern constraints"). Replace it with:
 
-```markdown
+````markdown
 ### Review pattern constraints
 
 Check for `.autopilot/review-patterns.md` in the target repo. If it exists, extract actionable constraints:
@@ -132,7 +134,7 @@ REVIEW_CONSTRAINTS:
 ```
 
 If the file does not exist, has fewer than 2 PR sections, or no category appears in 2+ sections, set `REVIEW_CONSTRAINTS` to empty and skip.
-```
+````
 
 ### Step 2: Update Phase 3 dispatch template to include constraints
 
@@ -187,7 +189,7 @@ In `skills/pm-workflow/SKILL.md`, find the line "### Step 3: Invoke receiving-co
 
 Insert this new Step 3:
 
-```markdown
+````markdown
 ### Step 3: Classify comments by PR scope
 
 Before evaluating comments, determine which ones target code the PR actually changed versus pre-existing code.
@@ -233,7 +235,7 @@ ISSUE_EOF
 Add the out-of-scope thread IDs to the resolution list in Step 6 (they should be resolved after replying).
 
 **Proceed to Step 4 with only the in-scope comments.**
-```
+````
 
 ### Step 2: Renumber Steps 3-8 to Steps 4-9
 
