@@ -654,7 +654,7 @@ Before creating the PR, make sure the branch can merge cleanly:
 
 4. **Add CI workflow if the repo has none** (only when `NEEDS_CI` is true):
 
-   If Phase 1 detected no `.github/workflows/` directory, generate a basic CI workflow before proceeding. Detect the project's language and test framework by checking for manifest files (`package.json`, `requirements.txt`, `pyproject.toml`, `Cargo.toml`, `Gemfile`, `go.mod`), then create a minimal workflow:
+   If Phase 1 determined that no CI workflows exist in `.github/workflows/`, generate a basic CI workflow before proceeding. Detect the project's language and test framework by checking for manifest files (`package.json`, `requirements.txt`, `pyproject.toml`, `Cargo.toml`, `Gemfile`, `go.mod`), then create a minimal workflow:
 
    ```bash
    mkdir -p .github/workflows
