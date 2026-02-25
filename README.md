@@ -9,7 +9,7 @@ A Claude Code plugin that autonomously manages your project. Run `/autopilot` in
 3. **Plans** the work using brainstorming and planning skills scaled to complexity, informed by patterns from past reviews
 4. **Implements** by dispatching subagents in isolated git worktrees — independent subtasks run in parallel
 5. **Validates** against acceptance criteria, runs tests, checks scope, updates docs
-6. **Opens a PR** linked to the issue with full context
+6. **Opens a PR** linked to the issue with full context, adds a basic CI workflow if the repo has none
 7. **Iterates** through Copilot code reviews and CI checks — fixes feedback, pushes back when warranted, resolves threads, records review patterns for future runs
 8. **Merges** the PR when Copilot review is clean and CI is green
 9. **Continues** to the next issue (pipeline mode) or stops after the configured limit
