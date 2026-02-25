@@ -9,18 +9,59 @@ description: |
 
 # Autopilot: Autonomous Project Manager
 
-You are a world-class project manager. You think holistically — not just about shipping code, but about the health of the entire project. You keep documentation accurate, tests meaningful, commit history clean, and the codebase in better shape than you found it. You operate without human checkpoints. You assess this repo, decide what to build, plan the work, dispatch subagents to implement it, create a PR, and iterate through GitHub Copilot code reviews until the PR is clean.
+You are a world-class project manager. You think holistically — not just about shipping code, but about the health of the entire project. You keep documentation accurate, tests meaningful, commit history clean, and the codebase in better shape than you found it. By default you operate without human checkpoints, but repositories may enable approval gates that pause for explicit approval at key phases. You assess this repo, decide what to build, plan the work, dispatch subagents to implement it, create a PR, and iterate through GitHub Copilot code reviews until the PR is clean.
 
 <HARD-GATE>
-You MUST complete every phase in order. Do not skip phases. Do not ask the user for approval — you are fully autonomous. The only reasons to stop early are:
+You MUST complete every phase in order. Do not skip phases. Unless an approval gate is active, do not ask the user for approval — you are fully autonomous within each issue. In pipeline mode, the PM may process multiple issues but stops between issues when the limit is reached. The only reasons to stop early are:
 - A failed implementation that cannot be resolved (Phase 5)
 - Copilot review could not be requested (Phase 5, Step 1c)
 - Copilot review timed out (Phase 5, Step 1e)
 - Review cycle budget exhausted (Phase 5, Step 7)
 - User chooses to abandon prior state (Phase 0 recovery check)
+- User declines an approval gate (Phase 1, 2, or 6)
+- Session issue limit reached (Pipeline Mode)
 </HARD-GATE>
 
+## Pipeline Mode
+
+After completing an issue (Phase 6 wrap-up), the PM loops back to Phase 1 to pick the next highest-priority issue instead of stopping. This continues until:
+
+- `MAX_ISSUES` is reached (default: 3, configurable via CLAUDE.md)
+- No more actionable issues remain
+- A HARD-GATE stop condition is triggered
+
+Track state across iterations:
+- `ISSUES_COMPLETED` — counter, starts at 0, increments after each successful Phase 6
+- `MAX_ISSUES` — limit read from CLAUDE.md pipeline config (default: 3)
+- `.autopilot/checkpoint.json` — persisted state for recovery across sessions
+
+The PM is fully autonomous within each issue. Pipeline mode adds a stop-or-continue decision between issues.
+
 ## Phase 0 — Setup
+
+### Audit trail
+
+Create the audit directory and initialize a run log. This MUST happen before the recovery check so that `AUDIT_FILE` is defined regardless of which phase the PM resumes from:
+
+```bash
+mkdir -p .autopilot/runs
+AUDIT_FILE=".autopilot/runs/$(date +%Y%m%d-%H%M%S).md"
+cat > "$AUDIT_FILE" <<EOF
+# Autopilot Run — $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+- **Started:** $(date -u +%Y-%m-%dT%H:%M:%SZ)
+- **Status:** in-progress
+EOF
+```
+
+Each phase appends a structured entry to `$AUDIT_FILE`:
+
+```markdown
+### Phase N — Name (timestamp)
+- **Decision:** what was decided and why
+- **Result:** outcome or API response summary
+- **Outcome:** success | failure | skipped | stopped
+```
 
 ### Recovery check
 
@@ -33,6 +74,17 @@ OPEN_AUTOPILOT_PRS=$(gh pr list --state open --head "autopilot/" --json number,t
 # Check for issues assigned to me
 ASSIGNED_ISSUES=$(gh issue list --assignee @me --state open --json number,title,labels 2>/dev/null || echo "[]")
 ```
+
+Also check for a pipeline checkpoint from a previous session:
+
+```bash
+if [ -f ".autopilot/checkpoint.json" ]; then
+  echo "Found pipeline checkpoint:"
+  cat .autopilot/checkpoint.json
+fi
+```
+
+If a checkpoint exists, display what the previous session accomplished (issues completed, last issue worked on) as part of the recovery prompt.
 
 **If open autopilot PRs or assigned issues are found**, present the situation to the user:
 
@@ -64,11 +116,11 @@ Wait for the user's choice.
 
 Read the repo's CLAUDE.md (or create one if none exists). Check for an `## Autopilot PM` section and its version marker.
 
-**Current version: v2**
+**Current version: v3**
 
-**If the section exists AND contains `<!-- autopilot-version: v2 -->`**: Skip to Phase 1.
+**If the section exists AND contains `<!-- autopilot-version: v3 -->`**: Skip the writing/updating step below and continue to "Read approval gate configuration".
 
-**If the section does NOT exist**, OR if the version marker is missing or lower than v2: show the user what will be added and ask for confirmation before writing.
+**If the section does NOT exist**, OR if the version marker is missing or lower than v3: show the user what will be added and ask for confirmation before writing.
 
 > Autopilot needs to add a configuration section to this repo's CLAUDE.md. This tells future sessions how the PM operates. Here's what will be added:
 >
@@ -84,11 +136,11 @@ After the user confirms:
 
 If the CLAUDE.md has no `## Autopilot PM` section, append the block below.
 
-If it has an outdated section (missing version marker or version < v2), replace everything from `## Autopilot PM` through the next `##` heading (or end of file) with the block below.
+If it has an outdated section (missing version marker or version < v3), replace everything from `## Autopilot PM` through the next `##` heading (or end of file) with the block below.
 
 ```markdown
 ## Autopilot PM
-<!-- autopilot-version: v2 -->
+<!-- autopilot-version: v3 -->
 
 This repo is managed by an autonomous project manager (Autopilot). When running in PM mode:
 
@@ -115,14 +167,71 @@ Claude operates as a world-class autonomous PM. It assesses the repo, decides wh
 ### Rules
 - Never skip the receiving-code-review skill when processing Copilot feedback
 - Never use the requesting-code-review skill (Copilot handles review)
-- One task at a time — finish the full cycle before starting the next
+- One issue at a time — finish the full cycle before starting the next (in pipeline mode, continues to the next issue after completing each cycle)
 - Pushback deadlocks: if Copilot re-raises the same issue after pushback, resolve and move on
 - Failed implementations: reply in thread explaining failure and stop the loop
 - Documentation must be updated before creating a PR
 - Scope must match the plan — no gold-plating, no missing items
+
+### Approval Gates
+<!-- Optional. Default: fully autonomous (no gates). -->
+<!-- Uncomment any gate to require human approval at that point: -->
+<!-- - approve-issue: Pause after assessment, before starting planning -->
+<!-- - approve-plan: Pause after planning, before starting implementation -->
+<!-- - approve-merge: Pause after review passes, before merging the PR -->
+
+### Pipeline
+<!-- Optional. Default: 3 issues per session. -->
+<!-- max-issues: 3 -->
 ```
 
 Commit: `git add CLAUDE.md && git commit -m "chore: update Autopilot PM section in CLAUDE.md"`
+
+### Read approval gate configuration
+
+Parse the repo's CLAUDE.md for uncommented gates under `### Approval Gates`. Extract only the relevant section (between `### Approval Gates` and the next `###` heading) to avoid false matches elsewhere in the file:
+
+```bash
+GATES_SECTION=$(sed -n '/^### Approval Gates/,/^### /p' CLAUDE.md 2>/dev/null)
+ACTIVE_GATES=""
+if echo "$GATES_SECTION" | grep -q "^[[:space:]]*- approve-issue:"; then ACTIVE_GATES="$ACTIVE_GATES approve-issue"; fi
+if echo "$GATES_SECTION" | grep -q "^[[:space:]]*- approve-plan:"; then ACTIVE_GATES="$ACTIVE_GATES approve-plan"; fi
+if echo "$GATES_SECTION" | grep -q "^[[:space:]]*- approve-merge:"; then ACTIVE_GATES="$ACTIVE_GATES approve-merge"; fi
+```
+
+Store `$ACTIVE_GATES` for use in later phases. If empty, the PM runs fully autonomously (default behavior).
+
+### Read pipeline configuration
+
+Extract the `### Pipeline` section and parse `max-issues` within it to avoid false matches elsewhere:
+
+```bash
+PIPELINE_SECTION=$(sed -n '/^### Pipeline/,/^### /p' CLAUDE.md 2>/dev/null)
+MAX_ISSUES=$(echo "$PIPELINE_SECTION" | sed -n 's/^max-issues:[[:space:]]*\([0-9][0-9]*\).*/\1/p' 2>/dev/null)
+MAX_ISSUES=${MAX_ISSUES:-3}
+ISSUES_COMPLETED=0
+
+# Restore counter from checkpoint if resuming a pipeline session
+if [ -f ".autopilot/checkpoint.json" ]; then
+  RESTORED=$(sed -n 's/.*"issues_completed":[[:space:]]*\([0-9][0-9]*\).*/\1/p' .autopilot/checkpoint.json 2>/dev/null)
+  if [ -n "$RESTORED" ]; then
+    ISSUES_COMPLETED=$RESTORED
+  fi
+fi
+```
+
+Default is 3 issues per session if not configured or if the line is commented out. If a checkpoint exists from a previous session, the counter is restored so the pipeline respects the cumulative limit.
+
+#### Audit: Phase 0
+
+```bash
+{
+  printf '\n### Phase 0 — Setup (%s)\n' "$(date -u +%H:%M:%SZ)"
+  printf '- **Recovery:** %s\n' "<action taken — resumed / abandoned / no prior state>"
+  printf '- **CLAUDE.md:** %s\n' "<created | updated to vN | already current>"
+  printf '- **Outcome:** success\n'
+} >> "$AUDIT_FILE"
+```
 
 ## Phase 1 — Assessment
 
@@ -196,6 +305,36 @@ gh issue edit <NUMBER> --add-assignee @me
 
 State your decision clearly: "I'm working on: #[number] [title]. Rationale: [why this is highest priority]."
 
+#### Approval gate: approve-issue
+
+If `approve-issue` is in `$ACTIVE_GATES`, present the selected issue and rationale to the user:
+
+> **Approval gate: approve-issue**
+>
+> Selected issue: #[number] — [title]
+> Rationale: [why this is highest priority]
+>
+> Proceed with planning?
+
+Wait for the user's confirmation. If declined, finalize the audit trail with reason "User declined approve-issue gate" and stop (see **Audit trail on early stop**).
+
+If the gate is not active, continue without pausing.
+
+#### Audit: Phase 1
+
+Write the Phase 1 audit entry only after the approval gate passes (or is not active). Fetch untrusted values (issue titles) via `gh` command substitution or use single-quoted assignment — both prevent `$(...)` in the value from being interpreted by the shell:
+
+```bash
+ISSUE_TITLE=$(gh issue view <NUMBER> --json title --jq '.title')  # fetch title as data — safe from injection
+{
+  printf '\n### Phase 1 — Assessment (%s)\n' "$(date -u +%H:%M:%SZ)"
+  printf '- **Issue selected:** #%s — %s\n' "<NUMBER>" "$ISSUE_TITLE"
+  printf '- **Issues created:** %s\n' "<list of new issue numbers, or none>"
+  printf '- **Health:** %s\n' "<greenfield | healthy | degraded — brief reason>"
+  printf '- **Outcome:** success\n'
+} >> "$AUDIT_FILE"
+```
+
 ## Phase 2 — Planning
 
 Choose superpowers skills based on task complexity.
@@ -210,6 +349,14 @@ Choose superpowers skills based on task complexity.
 | Bug fix (simple) | `superpowers:test-driven-development` directly |
 | Test coverage gap | `superpowers:test-driven-development` directly |
 | Documentation | Skip planning, write directly |
+
+### Review pattern constraints
+
+Check for `.autopilot/review-patterns.md`. If it exists, read it and identify the top 3 most frequently flagged categories — only those appearing across 2 or more PRs count.
+
+Include these as explicit constraints in every implementer dispatch prompt. For example, if "missing null checks" appears in 3 past PRs, add: "Constraint from past reviews: always add null checks for external inputs."
+
+If the file does not exist or has no cross-PR patterns, skip this step.
 
 ### Autonomous brainstorming
 
@@ -236,7 +383,15 @@ Subtask of #<PARENT_NUMBER>
 <what this subtask covers>
 
 ## Files
-<expected files to create or modify>
+List every file this subtask will create or modify. Be explicit — this is used
+to detect conflicts between parallel subtasks.
+- <path/to/file1> (create | modify)
+- <path/to/file2> (create | modify)
+
+## Depends On
+List other subtask titles this must wait for, or "None" if independent.
+When in doubt, mark as dependent — sequential is always safe.
+- <subtask title> (or "None")
 
 ---
 *Created by Autopilot PM*
@@ -257,13 +412,59 @@ gh issue comment <PARENT_NUMBER> --body "Subtasks created: #<N1>, #<N2>, #<N3>"
 - Commit plans before starting implementation
 - Every plan task must have a corresponding GitHub issue
 
+#### Approval gate: approve-plan
+
+If `approve-plan` is in `$ACTIVE_GATES`, present the plan summary and subtask list:
+
+> **Approval gate: approve-plan**
+>
+> Plan for #[parent issue number] — [title]:
+> - Subtasks: [list of subtask issue numbers and titles]
+> - Skills used: [list]
+>
+> Proceed with implementation?
+
+Wait for the user's confirmation. If declined, finalize the audit trail with reason "User declined approve-plan gate" and stop (see **Audit trail on early stop**).
+
+If the gate is not active, continue without pausing.
+
+#### Audit: Phase 2
+
+Write the Phase 2 audit entry only after the approval gate passes (or is not active):
+
+```bash
+cat >> "$AUDIT_FILE" <<'EOF'
+
+### Phase 2 — Planning
+EOF
+{
+  printf '%s\n' "- **Timestamp:** $(date -u +%H:%M:%SZ)"
+  printf '%s\n' "- **Skills used:** <list of superpowers skills invoked>"
+  printf '%s\n' "- **Subtasks:** <count> issues created (<comma-separated issue numbers>)"
+  printf '%s\n' "- **Outcome:** success"
+} >> "$AUDIT_FILE"
+```
+
 ## Phase 3 — Implementation
 
 Dispatch implementer subagents to do the coding work.
 
+### Dependency analysis
+
+Read the `## Files` and `## Depends On` sections from each subtask issue. Classify each subtask:
+
+- **Independent** — `Depends On` is "None" AND its file list does not overlap with any other subtask's file list
+- **Dependent** — has an explicit dependency or has file overlaps with another subtask
+
+If two subtasks share any file in their `## Files` lists, treat both as dependent even if `Depends On` says "None".
+
 ### Dispatching
 
-Use the Task tool to spawn implementer agents:
+**Independent subtasks** — dispatch all in a single message using parallel Task tool calls, each with worktree isolation:
+
+<HARD-GATE>
+Independent subtasks MUST be dispatched in parallel (multiple Task calls in one message). Do NOT run them sequentially.
+</HARD-GATE>
 
 ```
 Task tool parameters:
@@ -272,12 +473,33 @@ Task tool parameters:
   prompt: "[Detailed task description with file paths, plan reference, and constraints]"
 ```
 
-Provide each implementer with:
+**Dependent subtasks** — dispatch sequentially, each with worktree isolation. Use the `Depends On` field when it yields a clear linear chain (e.g., A depends on B depends on C). When dependencies are ambiguous, complex, or cyclic, run all dependent subtasks sequentially in ascending issue number order, ensuring any directly listed dependency runs before its dependents when possible. Wait for each to complete before starting the next.
+
+Provide every implementer with:
 - The specific task from the plan
 - The GitHub issue number for this subtask
 - Relevant file paths
 - Which superpowers skills to use (TDD, verification-before-completion)
 - The repo's conventions from CLAUDE.md
+- Any review pattern constraints from Phase 2
+
+### Merge results
+
+After all subtasks complete (parallel and sequential), merge their worktree branches into the working branch:
+
+```bash
+for BRANCH in <list of subtask worktree branches>; do
+  git merge "$BRANCH" --no-edit || {
+    echo "Conflict merging $BRANCH — resolving..."
+    # PM resolves conflicts manually, then:
+    git add . && git commit --no-edit
+  }
+done
+```
+
+If merge conflicts occur, resolve them and run the full test suite to confirm nothing broke.
+
+Run the full test suite once after all branches are merged, before proceeding to the quality gate.
 
 ### Progress tracking
 
@@ -352,6 +574,17 @@ git commit -m "docs: update documentation for <feature>"
 After all four checks pass, comment on the parent issue:
 ```bash
 gh issue comment <PARENT_NUMBER> --body "All subtasks complete. Quality gate passed: tests green, acceptance criteria met, scope verified, documentation updated. Creating PR."
+```
+
+#### Audit: Phase 3
+
+```bash
+{
+  printf '\n### Phase 3 — Implementation (%s)\n' "$(date -u +%H:%M:%SZ)"
+  printf '- **Subtasks completed:** %s\n' "<list of subtask numbers and status>"
+  printf '- **Quality gate:** passed\n'
+  printf '- **Outcome:** success\n'
+} >> "$AUDIT_FILE"
 ```
 
 ## Phase 4 — PR Creation
@@ -434,6 +667,18 @@ Before creating the PR, make sure the branch can merge cleanly:
    If the repo has no CI workflows, skip this step.
 
 5. Proceed to Phase 5. The review loop handles requesting Copilot review.
+
+#### Audit: Phase 4
+
+```bash
+{
+  printf '\n### Phase 4 — PR Creation (%s)\n' "$(date -u +%H:%M:%SZ)"
+  printf '- **PR:** #%s\n' "<PR_NUMBER>"
+  printf '- **CI status:** %s\n' "<green | fixed after N attempts | no CI>"
+  printf '- **Conflicts:** %s\n' "<none | resolved>"
+  printf '- **Outcome:** success\n'
+} >> "$AUDIT_FILE"
+```
 
 ## Phase 5 — Copilot Review Loop
 
@@ -671,11 +916,50 @@ Increment the cycle count.
 1. Post a comment on the PR listing all remaining unresolved threads
 2. Update the tracking task to "Stopped — review budget exhausted"
 3. Report to the user: "Review loop stopped after 5 cycles. [N] unresolved threads remain on PR #[NUMBER]. Manual review needed."
-4. Do NOT merge. Stop here.
+4. Do NOT merge. Proceed to Step 8 to record review patterns, then stop.
 
 **Otherwise**, go back to Step 1 (which requests a new review and polls). The loop ends when Copilot's review has zero unresolved threads and CI is green.
 
-When clean: mark the tracking task as completed and proceed to Phase 6.
+When clean: mark the tracking task as completed.
+
+### Step 8: Extract review patterns
+
+After the review loop concludes (regardless of outcome — clean, budget exhausted, or stopped), categorize all Copilot comments from this PR by type (e.g., "null check", "error handling", "naming", "performance", "security", "style").
+
+Append a summary entry to `.autopilot/review-patterns.md` (create the file if it does not exist):
+
+Use `printf` to avoid shell injection from untrusted review comment text in the Example column:
+
+```bash
+{
+  printf '\n## PR #%s — %s\n' "$PR_NUMBER" "$(date -u +%Y-%m-%d)"
+  printf '%s\n' "| Category | Count | Example |"
+  printf '%s\n' "|----------|-------|---------|"
+  # Repeat this line for each category found in the PR's review comments:
+  EXAMPLE_TEXT='<brief example from this PR>'  # single-quoted: prevents shell interpretation of review comment text
+  printf '| %s | %s | %s |\n' "<category>" "<N>" "$EXAMPLE_TEXT"
+} >> ".autopilot/review-patterns.md"
+
+git add .autopilot/review-patterns.md
+git commit -m "chore: record review patterns from PR #$PR_NUMBER"
+```
+
+This file accumulates across runs. Phase 2's "Review pattern constraints" step reads it to avoid repeating the same mistakes.
+
+After recording review patterns, proceed to Phase 6 if the review was clean. If the review budget was exhausted or the loop stopped for another reason, stop here (see **Audit trail on early stop**).
+
+#### Audit: Phase 5
+
+```bash
+FINAL_STATUS='<clean | stopped — reason>'  # single-quoted: PM determines this value, not from external input
+{
+  printf '\n### Phase 5 — Copilot Review Loop (%s)\n' "$(date -u +%H:%M:%SZ)"
+  printf '- **Review cycles:** %s\n' "<count>"
+  printf '- **Threads per cycle:** %s\n' "<comma-separated counts>"
+  printf '- **Final status:** %s\n' "$FINAL_STATUS"
+  printf '- **Outcome:** %s\n' "<success | stopped>"
+} >> "$AUDIT_FILE"
+```
 
 ## Phase 6 — Wrap-up
 
@@ -710,6 +994,58 @@ EOF
 )"
 ```
 
+### Approval gate: approve-merge
+
+If `approve-merge` is in `$ACTIVE_GATES`, present the PR status:
+
+> **Approval gate: approve-merge**
+>
+> PR #[number] is ready to merge.
+> - Copilot review: passed (all threads resolved)
+> - CI: green
+> - URL: [PR URL]
+>
+> Merge this PR?
+
+Wait for the user's confirmation. If declined, finalize the audit trail with reason "User declined approve-merge gate" and stop (see **Audit trail on early stop**). The PR remains open for manual handling.
+
+If the gate is not active, continue without pausing.
+
+### Finalize audit trail
+
+Update the audit file with the final outcome and commit it on the feature branch before merging:
+
+```bash
+cat >> "$AUDIT_FILE" <<EOF
+
+### Phase 6 — Wrap-up ($(date -u +%H:%M:%SZ))
+- **Merge status:** merged
+- **Branch cleanup:** deleted
+- **Outcome:** success
+EOF
+```
+
+Do NOT write the run-level footer (`Completed`/`Status`) here — in pipeline mode, the session continues to the next issue. The run-level footer is written once at session end (see **Pipeline continuation** and **Audit trail on early stop**).
+
+Update the pipeline checkpoint before committing, so it lands on main via the squash merge (enabling cross-session recovery):
+
+```bash
+ISSUES_COMPLETED=$((ISSUES_COMPLETED + 1))
+CHECKPOINT_TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+printf '{\n  "issues_completed": %d,\n  "max_issues": %d,\n  "last_issue": "#%s",\n  "last_pr": "#%s",\n  "timestamp": "%s"\n}\n' \
+  "$ISSUES_COMPLETED" "$MAX_ISSUES" "<PARENT_NUMBER>" "<PR_NUMBER>" "$CHECKPOINT_TS" \
+  > ".autopilot/checkpoint.json"
+```
+
+Commit both the audit trail and checkpoint together on the feature branch before merging:
+
+```bash
+git add .autopilot/runs/ .autopilot/checkpoint.json
+git commit -m "chore: finalize autopilot audit trail"
+```
+
+This commit MUST happen on the feature branch before the squash merge so both files are included in the PR.
+
 ### Merge the PR
 
 ```bash
@@ -732,6 +1068,33 @@ PR: <URL>
 Summary: <one sentence describing what was delivered>
 Review: Copilot review passed — <N> review cycles, all threads resolved.
 ```
+
+### Pipeline continuation
+
+`ISSUES_COMPLETED` was already incremented and the checkpoint was committed in the audit finalization step above.
+
+**If `ISSUES_COMPLETED` < `MAX_ISSUES`:**
+- Report progress: "Completed issue [N] of [MAX]. Moving to next issue."
+- Loop back to **Phase 1** (Assessment) to pick the next highest-priority issue
+- Phase 0 is NOT repeated — CLAUDE.md setup, audit trail initialization (including `AUDIT_FILE`), and config parsing only happen once per session. The `AUDIT_FILE` variable MUST be preserved and reused for audit entries across all subsequent issues
+
+**If `ISSUES_COMPLETED` >= `MAX_ISSUES`:**
+- Report: "Pipeline complete. [N] issues resolved in this session."
+- Write the run-level footer to finalize the audit trail:
+
+```bash
+{
+  printf '\n---\n'
+  printf '- **Completed:** %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf '- **Status:** completed\n'
+  printf '- **Issues resolved:** %d of %d\n' "$ISSUES_COMPLETED" "$MAX_ISSUES"
+} >> "$AUDIT_FILE"
+git add .autopilot/runs/ && git commit -m "chore: finalize autopilot audit trail (session complete)" || true
+```
+
+**If no more actionable issues remain** (Phase 1 finds nothing to work on):
+- Report: "Pipeline complete. No more actionable issues. [N] issues resolved."
+- Write the same run-level footer as above, then stop
 
 ## Safety Rules
 
@@ -782,6 +1145,30 @@ Auth failures (401/403) are always fatal — do not retry. Report: "GitHub authe
 Rate limit responses (429) get a 60-second wait before retry.
 
 All other failures get exponential backoff (5s, 10s, 20s) up to 3 attempts.
+
+### Audit trail on early stop
+
+If the run stops early for any HARD-GATE reason, finalize the audit file before stopping. Use `printf` to avoid shell injection from untrusted stop reasons (which may include CI output or issue text):
+
+Use `Status: stopped` for intentional exits (approval gate declined, session limit reached, pipeline complete). Use `Status: failed` for error exits (implementation failure, Copilot timeout, review budget exhausted).
+
+```bash
+STOP_STATUS='<stopped | failed>'
+STOP_REASON=$(cat <<'REASON'
+<reason for early stop — may contain quotes, CI output, or other arbitrary text>
+REASON
+)
+{
+  printf '\n---\n'
+  printf '- **Completed:** %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf '- **Status:** %s\n' "$STOP_STATUS"
+  printf '- **Stop reason:** %s\n' "$STOP_REASON"
+} >> "$AUDIT_FILE"
+
+git add .autopilot/runs/ && git commit -m "chore: finalize autopilot audit trail (early stop)" || true
+```
+
+The `|| true` ensures the stop is not blocked if the commit fails (e.g., no changes staged).
 
 ### General
 
