@@ -16,7 +16,7 @@ You MUST complete every phase in order. Do not skip phases. Unless an approval g
 - A failed implementation that cannot be resolved (Phase 5)
 - Copilot review could not be requested (Phase 5, Step 1c)
 - Copilot review timed out (Phase 5, Step 1e)
-- Review cycle budget exhausted (Phase 5, Step 7)
+- Review cycle budget exhausted (Phase 5, Step 8)
 - User chooses to abandon prior state (Phase 0 recovery check)
 - User declines an approval gate (Phase 1, 2, or 6)
 - Session issue limit reached (Pipeline Mode)
@@ -905,7 +905,53 @@ Only process unresolved threads where the comment author is `copilot-pull-reques
 
 After reading the review, increment `REVIEWS_PROCESSED` by 1.
 
-### Step 3: Invoke receiving-code-review
+### Step 3: Classify comments by PR scope
+
+Before evaluating comments, determine which ones target code the PR actually changed versus pre-existing code.
+
+**Get the PR's changed file/line ranges:**
+```bash
+gh pr diff $PR_NUMBER --name-only
+```
+
+For a more precise check, get the full diff with line numbers:
+```bash
+gh pr diff $PR_NUMBER > /tmp/pr_diff.txt
+```
+
+**For each unresolved Copilot comment from Step 2, classify it:**
+
+- **In-scope** — The comment's `path` is in the PR's changed files AND the comment's `line` falls within a changed hunk (added/modified lines in the diff). These get processed normally in Step 4.
+- **Out-of-scope** — The comment's `path` is not in the PR's changed files, OR the `line` is outside any changed hunk. These are pre-existing issues that the PR did not introduce.
+
+**Handle out-of-scope comments:**
+
+For each out-of-scope comment, reply in the thread explaining this is pre-existing code:
+```bash
+gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments/$COMMENT_ID/replies \
+  -f body="This comment targets code not modified by this PR (pre-existing). Filing as a separate issue for future cleanup."
+```
+
+Optionally batch-create a single issue for all out-of-scope findings:
+```bash
+# Only if there are out-of-scope comments worth tracking
+gh issue create --title "Address pre-existing code issues flagged on PR #$PR_NUMBER" --body "$(cat <<'ISSUE_EOF'
+## Pre-existing issues flagged by Copilot
+
+These were flagged during review of PR #$PR_NUMBER but target code not modified by that PR.
+
+$(for each out-of-scope comment: "- **$PATH:$LINE** — $BODY")
+
+Filed automatically by Autopilot PM.
+ISSUE_EOF
+)"
+```
+
+Add the out-of-scope thread IDs to the resolution list in Step 6 (they should be resolved after replying).
+
+**Proceed to Step 4 with only the in-scope comments.**
+
+### Step 4: Invoke receiving-code-review
 
 Invoke `superpowers:receiving-code-review` to process the feedback.
 
@@ -917,7 +963,7 @@ For each comment, follow the external reviewer protocol:
 5. **RESPOND:** Technical acknowledgment or reasoned pushback
 6. **IMPLEMENT:** One item at a time, test each
 
-### Step 4: Address comments
+### Step 5: Address comments
 
 For each actionable comment, dispatch an implementer subagent to fix the code.
 
@@ -945,13 +991,13 @@ gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments/$COMMENT_ID/replies \
   -f body="<technical explanation of why the current code is correct>"
 ```
 
-### Step 5: Resolve all addressed threads
+### Step 6: Resolve all addressed threads
 
 <HARD-GATE>
 After ALL fixes are committed and ALL replies are posted, the PM MUST resolve every addressed thread. Do not skip this step.
 </HARD-GATE>
 
-Resolve all addressed threads (both fixed and pushed-back) in a single batch. Collect the thread node IDs from Step 2 and resolve them in one shell invocation:
+Resolve all addressed threads (fixed, pushed-back, and out-of-scope) in a single batch. Collect the thread node IDs from Step 2 and resolve them in one shell invocation:
 
 ```bash
 THREAD_IDS=("<THREAD_NODE_ID_1>" "<THREAD_NODE_ID_2>" "<THREAD_NODE_ID_3>")
@@ -974,7 +1020,7 @@ echo "All ${#THREAD_IDS[@]} threads resolved successfully"
 
 If any threads fail to resolve, report the specific failures. Do not silently continue — resolution failures must be visible.
 
-### Step 6: Commit, push, request review, and verify CI
+### Step 7: Commit, push, request review, and verify CI
 
 After all fixes are applied and all threads are resolved:
 ```bash
@@ -1002,7 +1048,7 @@ If CI fails after pushing review fixes:
 - Request Copilot review again after pushing the CI fix (fire-and-forget)
 - Wait for CI to pass before proceeding
 
-### Step 7: Check for completion
+### Step 8: Check for completion
 
 Increment the cycle count.
 
@@ -1010,13 +1056,13 @@ Increment the cycle count.
 1. Post a comment on the PR listing all remaining unresolved threads
 2. Update the tracking task to "Stopped — review budget exhausted"
 3. Report to the user: "Review loop stopped after 5 cycles. [N] unresolved threads remain on PR #[NUMBER]. Manual review needed."
-4. Do NOT merge. Proceed to Step 8 to record review patterns, then stop.
+4. Do NOT merge. Proceed to Step 9 to record review patterns, then stop.
 
 **Otherwise**, go back to Step 1 (which requests a new review and polls). The loop ends when Copilot's review has zero unresolved threads and CI is green.
 
 When clean: mark the tracking task as completed.
 
-### Step 8: Extract review patterns
+### Step 9: Extract review patterns
 
 After the review loop concludes (regardless of outcome — clean, budget exhausted, or stopped), categorize all Copilot comments from this PR by type (e.g., "null check", "error handling", "naming", "performance", "security", "style").
 
@@ -1235,7 +1281,7 @@ done
 
 Apply this pattern to these critical operations:
 - **Copilot review request** (Phase 5, Step 1c) — already has scripted retry
-- **Thread resolution** (Phase 5, Step 5) — the batch script handles failures per-thread
+- **Thread resolution** (Phase 5, Step 6) — the batch script handles failures per-thread
 - **PR creation** (Phase 4) — retry on transient failure, fail on auth errors
 - **Issue creation** (Phases 1-2) — retry on transient failure
 
