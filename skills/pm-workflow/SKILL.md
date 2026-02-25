@@ -459,14 +459,17 @@ Read the `## Files` and `## Depends On` sections from each subtask issue. Classi
 
 If two subtasks share any file in their `## Files` lists, treat both as dependent even if `Depends On` says "None".
 
-### Clean git lock files
+### Clean git config lock
 
-Before dispatching parallel subtasks, remove any stale git lock files that would cause concurrent operations to fail. Git creates `.lock` files as mutexes during operations — if a previous process was interrupted, these persist and block all subsequent git commands across all worktrees.
+Before dispatching any subtasks (independent or dependent), remove stale `config.lock` files that would cause git operations to fail. Git creates lock files as mutexes — if a previous process was interrupted, the lock persists and blocks all subsequent git commands across all worktrees.
 
 ```bash
-# Remove stale git lock files (only if no git process is actively running)
+# Remove stale config.lock (double-check to reduce race window with newly started git processes)
 if ! pgrep -x git > /dev/null 2>&1; then
-  find "$(git rev-parse --git-common-dir)" -name "*.lock" -delete 2>/dev/null || true
+  sleep 1
+  if ! pgrep -x git > /dev/null 2>&1; then
+    find "$(git rev-parse --git-common-dir)" -name "config.lock" -delete 2>/dev/null || true
+  fi
 fi
 ```
 
@@ -475,7 +478,7 @@ fi
 **Independent subtasks** — dispatch all in a single message using parallel Task tool calls, each with worktree isolation:
 
 <HARD-GATE>
-Independent subtasks MUST be dispatched in parallel (multiple Task calls in one message). Do NOT run them sequentially. You MUST run the lock file cleanup step above before dispatching.
+Independent subtasks MUST be dispatched in parallel (multiple Task calls in one message). Do NOT run them sequentially. You MUST run the config lock cleanup step above before dispatching any subtasks.
 </HARD-GATE>
 
 ```

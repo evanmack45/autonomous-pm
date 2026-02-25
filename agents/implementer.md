@@ -54,13 +54,21 @@ When running in a worktree alongside other parallel agents, git commands may fai
 
 If any git command fails with a lock-related error:
 
-1. Wait 2 seconds, then retry the command
+1. Retry once after a short delay:
+   ```bash
+   sleep 2
+   # Re-run the exact git command that failed
+   ```
 2. If it fails again, remove the stale lock file and retry:
    ```bash
-   # Only remove if no git process is actively running
+   # Double-check to reduce race window with newly started git processes
    if ! pgrep -x git > /dev/null 2>&1; then
-     rm -f "$(git rev-parse --git-common-dir)/config.lock"
+     sleep 1
+     if ! pgrep -x git > /dev/null 2>&1; then
+       rm -f "$(git rev-parse --git-common-dir)/config.lock"
+     fi
    fi
+   # Re-run the exact git command that failed
    ```
 3. If it still fails after the cleanup, report `blocked` with the full error message
 
