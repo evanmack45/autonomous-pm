@@ -664,7 +664,7 @@ Before creating the PR, make sure the branch can merge cleanly:
 
    This is a fire-and-forget request. Do not wait for the review here — Phase 5 Step 1b will detect it when the review loop starts. If the request fails silently (Copilot not enabled), Phase 5 will handle requesting it again.
 
-6. **Add CI workflow if the repo has none** (only when `NEEDS_CI` is true):
+5. **Add CI workflow if the repo has none** (only when `NEEDS_CI` is true):
 
    If Phase 1 determined that no CI workflows exist in `.github/workflows/`, generate a basic CI workflow before proceeding. Detect the project's language and test framework by checking for manifest files (`package.json`, `requirements.txt`, `pyproject.toml`, `Cargo.toml`, `Gemfile`, `go.mod`), then create a minimal workflow:
 
@@ -687,9 +687,9 @@ Before creating the PR, make sure the branch can merge cleanly:
    git push
    ```
 
-   Step 5 will handle waiting for the new workflow to pass.
+   Step 6 will handle waiting for the new workflow to pass.
 
-7. **Wait for CI checks** (if the repo has CI workflows):
+6. **Wait for CI checks** (if the repo has CI workflows):
 
    After pushing, poll until all CI checks complete:
    ```bash
@@ -704,7 +704,7 @@ Before creating the PR, make sure the branch can merge cleanly:
 
    If the repo has no CI workflows, skip this step.
 
-8. Proceed to Phase 5. The review loop will detect the Copilot review from step 4 if it has already arrived, or request a new one if needed.
+7. Proceed to Phase 5. The review loop will detect the Copilot review from step 4 if it has already arrived, or request a new one if needed.
 
 #### Audit: Phase 4
 
