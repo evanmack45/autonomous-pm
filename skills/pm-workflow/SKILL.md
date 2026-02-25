@@ -954,7 +954,7 @@ echo "All ${#THREAD_IDS[@]} threads resolved successfully"
 
 If any threads fail to resolve, report the specific failures. Do not silently continue — resolution failures must be visible.
 
-### Step 6: Commit, push, and verify CI
+### Step 6: Commit, push, request review, and verify CI
 
 After all fixes are applied and all threads are resolved:
 ```bash
@@ -962,6 +962,14 @@ git add <changed files>
 git commit -m "fix: address Copilot review feedback"
 git push
 ```
+
+**Request Copilot review immediately after pushing** so it runs in parallel with CI:
+```bash
+gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/requested_reviewers \
+  -X POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>/dev/null || true
+```
+
+This is fire-and-forget, same as Phase 4 step 4. Step 1b in the next cycle will detect the review if it arrives while CI is still running.
 
 **Wait for CI** (if the repo has CI workflows):
 ```bash
@@ -971,8 +979,8 @@ gh pr checks $PR_NUMBER --watch --fail-fast
 If CI fails after pushing review fixes:
 - Read the failure logs: `gh run view <RUN_ID> --log-failed`
 - Fix the issue, commit, and push again
+- Request Copilot review again after pushing the CI fix (fire-and-forget)
 - Wait for CI to pass before proceeding
-- Do NOT request another Copilot review while CI is failing
 
 ### Step 7: Check for completion
 
