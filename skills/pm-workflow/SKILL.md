@@ -223,13 +223,12 @@ Default is 3 issues per session if not configured or if the line is commented ou
 #### Audit: Phase 0
 
 ```bash
-cat >> "$AUDIT_FILE" <<EOF
-
-### Phase 0 — Setup ($(date -u +%H:%M:%SZ))
-- **Recovery:** <action taken — resumed / abandoned / no prior state>
-- **CLAUDE.md:** <created | updated to vN | already current>
-- **Outcome:** success
-EOF
+{
+  printf '\n### Phase 0 — Setup (%s)\n' "$(date -u +%H:%M:%SZ)"
+  printf '- **Recovery:** %s\n' "<action taken — resumed / abandoned / no prior state>"
+  printf '- **CLAUDE.md:** %s\n' "<created | updated to vN | already current>"
+  printf '- **Outcome:** success\n'
+} >> "$AUDIT_FILE"
 ```
 
 ## Phase 1 — Assessment
@@ -578,13 +577,12 @@ gh issue comment <PARENT_NUMBER> --body "All subtasks complete. Quality gate pas
 #### Audit: Phase 3
 
 ```bash
-cat >> "$AUDIT_FILE" <<EOF
-
-### Phase 3 — Implementation ($(date -u +%H:%M:%SZ))
-- **Subtasks completed:** <list of subtask numbers and status>
-- **Quality gate:** passed
-- **Outcome:** success
-EOF
+{
+  printf '\n### Phase 3 — Implementation (%s)\n' "$(date -u +%H:%M:%SZ)"
+  printf '- **Subtasks completed:** %s\n' "<list of subtask numbers and status>"
+  printf '- **Quality gate:** passed\n'
+  printf '- **Outcome:** success\n'
+} >> "$AUDIT_FILE"
 ```
 
 ## Phase 4 — PR Creation
@@ -671,14 +669,13 @@ Before creating the PR, make sure the branch can merge cleanly:
 #### Audit: Phase 4
 
 ```bash
-cat >> "$AUDIT_FILE" <<EOF
-
-### Phase 4 — PR Creation ($(date -u +%H:%M:%SZ))
-- **PR:** #<PR_NUMBER>
-- **CI status:** <green | fixed after N attempts | no CI>
-- **Conflicts:** <none | resolved>
-- **Outcome:** success
-EOF
+{
+  printf '\n### Phase 4 — PR Creation (%s)\n' "$(date -u +%H:%M:%SZ)"
+  printf '- **PR:** #%s\n' "<PR_NUMBER>"
+  printf '- **CI status:** %s\n' "<green | fixed after N attempts | no CI>"
+  printf '- **Conflicts:** %s\n' "<none | resolved>"
+  printf '- **Outcome:** success\n'
+} >> "$AUDIT_FILE"
 ```
 
 ## Phase 5 — Copilot Review Loop
@@ -932,11 +929,12 @@ Append a summary entry to `.autopilot/review-patterns.md` (create the file if it
 Use `printf` to avoid shell injection from untrusted review comment text in the Example column:
 
 ```bash
-EXAMPLE_TEXT="<brief example from this PR>"  # assign untrusted value to variable first
 {
   printf '\n## PR #%s — %s\n' "$PR_NUMBER" "$(date -u +%Y-%m-%d)"
   printf '%s\n' "| Category | Count | Example |"
   printf '%s\n' "|----------|-------|---------|"
+  # Repeat this line for each category found in the PR's review comments:
+  EXAMPLE_TEXT="<brief example from this PR>"  # assign untrusted value to variable first
   printf '| %s | %s | %s |\n' "<category>" "<N>" "$EXAMPLE_TEXT"
 } >> ".autopilot/review-patterns.md"
 
@@ -951,14 +949,14 @@ After recording review patterns, proceed to Phase 6 if the review was clean. If 
 #### Audit: Phase 5
 
 ```bash
-cat >> "$AUDIT_FILE" <<EOF
-
-### Phase 5 — Copilot Review Loop ($(date -u +%H:%M:%SZ))
-- **Review cycles:** <count>
-- **Threads per cycle:** <comma-separated counts>
-- **Final status:** <clean | stopped — reason>
-- **Outcome:** success | stopped
-EOF
+FINAL_STATUS="<clean | stopped — reason>"  # assign to variable if reason includes external text
+{
+  printf '\n### Phase 5 — Copilot Review Loop (%s)\n' "$(date -u +%H:%M:%SZ)"
+  printf '- **Review cycles:** %s\n' "<count>"
+  printf '- **Threads per cycle:** %s\n' "<comma-separated counts>"
+  printf '- **Final status:** %s\n' "$FINAL_STATUS"
+  printf '- **Outcome:** %s\n' "<success | stopped>"
+} >> "$AUDIT_FILE"
 ```
 
 ## Phase 6 — Wrap-up
@@ -1063,15 +1061,10 @@ Increment `ISSUES_COMPLETED` and write the checkpoint:
 
 ```bash
 ISSUES_COMPLETED=$((ISSUES_COMPLETED + 1))
-cat > ".autopilot/checkpoint.json" <<EOF
-{
-  "issues_completed": $ISSUES_COMPLETED,
-  "max_issues": $MAX_ISSUES,
-  "last_issue": "#<PARENT_NUMBER>",
-  "last_pr": "#<PR_NUMBER>",
-  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-}
-EOF
+CHECKPOINT_TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+printf '{\n  "issues_completed": %d,\n  "max_issues": %d,\n  "last_issue": "#%s",\n  "last_pr": "#%s",\n  "timestamp": "%s"\n}\n' \
+  "$ISSUES_COMPLETED" "$MAX_ISSUES" "<PARENT_NUMBER>" "<PR_NUMBER>" "$CHECKPOINT_TS" \
+  > ".autopilot/checkpoint.json"
 git add .autopilot/checkpoint.json && git commit -m "chore: update pipeline checkpoint" || true
 ```
 
