@@ -266,6 +266,7 @@ You MUST dispatch all three tasks in a single message using multiple Task tool c
 After all three tasks return, synthesize the results to answer:
 - Is this a greenfield project or a mature codebase?
 - Are there failing tests or broken CI? (If so, fixing this may be highest priority)
+- Does the repo have CI workflows? If yes, set `NEEDS_CI=false`. If not, set `NEEDS_CI=true` for Phase 4 to handle
 - What's the overall project health?
 
 ### Create issues for identified work
@@ -651,7 +652,32 @@ Before creating the PR, make sure the branch can merge cleanly:
 
    The `Closes #N` line auto-closes the parent issue when the PR merges.
 
-4. **Wait for CI checks** (if the repo has CI workflows):
+4. **Add CI workflow if the repo has none** (only when `NEEDS_CI` is true):
+
+   If Phase 1 determined that no CI workflows exist in `.github/workflows/`, generate a basic CI workflow before proceeding. Detect the project's language and test framework by checking for manifest files (`package.json`, `requirements.txt`, `pyproject.toml`, `Cargo.toml`, `Gemfile`, `go.mod`), then create a minimal workflow:
+
+   ```bash
+   mkdir -p .github/workflows
+   ```
+
+   Generate `.github/workflows/ci.yml` with:
+   - Trigger on `push` and `pull_request` to `main`
+   - A single job that installs dependencies and runs the test suite
+   - Use the language runtime version specified in the project (e.g., `.python-version`, `.node-version`, `rust-toolchain.toml`)
+   - Pin all actions to SHA hashes with version comments
+
+   Keep it minimal — just dependency install and test run. No linting, no deployment, no matrix builds. The goal is a green/red signal, not a full CI pipeline.
+
+   Commit the workflow to the feature branch:
+   ```bash
+   git add .github/workflows/ci.yml
+   git commit -m "ci: add basic CI workflow"
+   git push
+   ```
+
+   Step 5 will handle waiting for the new workflow to pass.
+
+5. **Wait for CI checks** (if the repo has CI workflows):
 
    After pushing, poll until all CI checks complete:
    ```bash
@@ -666,7 +692,7 @@ Before creating the PR, make sure the branch can merge cleanly:
 
    If the repo has no CI workflows, skip this step.
 
-5. Proceed to Phase 5. The review loop handles requesting Copilot review.
+6. Proceed to Phase 5. The review loop handles requesting Copilot review.
 
 #### Audit: Phase 4
 
@@ -749,13 +775,13 @@ TaskCreate:
 TaskUpdate: set status to in_progress
 ```
 
-**Substep 1e — Poll until a NEW review appears** (review count increases beyond what you recorded in 1b). Timeout after 15 minutes:
+**Substep 1e — Poll until a NEW review appears** (review count increases beyond what you recorded in 1b). Timeout after 30 minutes:
 ```bash
 SECONDS=0
-TIMEOUT=900
+TIMEOUT=1800
 while true; do
   if [ "$SECONDS" -ge "$TIMEOUT" ]; then
-    echo "TIMEOUT: No Copilot review received after 15 minutes."
+    echo "TIMEOUT: No Copilot review received after 30 minutes."
     exit 1
   fi
   REVIEW_COUNT_NOW=$(gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/reviews --jq '[.[] | select(.user.login == "copilot-pull-request-reviewer[bot]")] | length' 2>/dev/null || echo "$REVIEW_COUNT_BEFORE")
@@ -765,12 +791,12 @@ while true; do
     exit 0
   fi
   ELAPSED=$((SECONDS / 60))
-  echo "Waiting for Copilot review... (${ELAPSED}m elapsed, timeout at 15m)"
+  echo "Waiting for Copilot review... (${ELAPSED}m elapsed, timeout at 30m)"
   sleep 30
 done
 ```
 
-If this script exits with failure (timeout), update the tracking task to an error state and report to the user: "Copilot review did not arrive within 15 minutes. The review was requested but no response was received. Check that Copilot code review is enabled and functioning on this repository." Do NOT retry the entire loop — stop and escalate.
+If this script exits with failure (timeout), update the tracking task to an error state and report to the user: "Copilot review did not arrive within 30 minutes. The review was requested but no response was received. Check that Copilot code review is enabled and functioning on this repository." Do NOT retry the entire loop — stop and escalate.
 
 **Substep 1f — Update the tracking task** after the review arrives:
 ```
@@ -1071,12 +1097,17 @@ Review: Copilot review passed — <N> review cycles, all threads resolved.
 
 ### Pipeline continuation
 
+<HARD-GATE>
+After reporting the merge to the user, you MUST evaluate the pipeline continuation logic below. Do NOT stop after merging a PR — the pipeline continues unless a stop condition is met. Stopping after a single PR merge without checking the continuation logic is a bug.
+</HARD-GATE>
+
 `ISSUES_COMPLETED` was already incremented and the checkpoint was committed in the audit finalization step above.
 
 **If `ISSUES_COMPLETED` < `MAX_ISSUES`:**
 - Report progress: "Completed issue [N] of [MAX]. Moving to next issue."
+- Sync local main with remote: `git checkout main && git pull origin main`
 - Loop back to **Phase 1** (Assessment) to pick the next highest-priority issue
-- Phase 0 is NOT repeated — CLAUDE.md setup, audit trail initialization (including `AUDIT_FILE`), and config parsing only happen once per session. The `AUDIT_FILE` variable MUST be preserved and reused for audit entries across all subsequent issues
+- Phase 0 is NOT repeated — CLAUDE.md setup, audit trail initialization (including `AUDIT_FILE`), and config parsing only happen once per session. The `AUDIT_FILE`, `MAX_ISSUES`, `ACTIVE_GATES`, and `ISSUES_COMPLETED` variables MUST be preserved and reused across all subsequent issues
 
 **If `ISSUES_COMPLETED` >= `MAX_ISSUES`:**
 - Report: "Pipeline complete. [N] issues resolved in this session."
