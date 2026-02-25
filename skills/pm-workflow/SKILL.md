@@ -675,7 +675,7 @@ Before creating the PR, make sure the branch can merge cleanly:
    git push
    ```
 
-   Wait for the workflow to run on the PR and verify it passes before continuing.
+   Step 5 will handle waiting for the new workflow to pass.
 
 5. **Wait for CI checks** (if the repo has CI workflows):
 
