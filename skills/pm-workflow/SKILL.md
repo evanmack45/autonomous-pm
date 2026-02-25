@@ -652,7 +652,19 @@ Before creating the PR, make sure the branch can merge cleanly:
 
    The `Closes #N` line auto-closes the parent issue when the PR merges.
 
-4. **Add CI workflow if the repo has none** (only when `NEEDS_CI` is true):
+4. **Request Copilot review immediately** so it runs in parallel with CI:
+
+   ```bash
+   OWNER=$(gh repo view --json owner -q '.owner.login')
+   REPO=$(gh repo view --json name -q '.name')
+   PR_NUMBER=$(gh pr view --json number -q '.number')
+   gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/requested_reviewers \
+     -X POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>/dev/null || true
+   ```
+
+   This is a fire-and-forget request. Do not wait for the review here — Phase 5 Step 1b will detect it when the review loop starts. If the request fails silently (Copilot not enabled), Phase 5 will handle requesting it again.
+
+6. **Add CI workflow if the repo has none** (only when `NEEDS_CI` is true):
 
    If Phase 1 determined that no CI workflows exist in `.github/workflows/`, generate a basic CI workflow before proceeding. Detect the project's language and test framework by checking for manifest files (`package.json`, `requirements.txt`, `pyproject.toml`, `Cargo.toml`, `Gemfile`, `go.mod`), then create a minimal workflow:
 
@@ -677,7 +689,7 @@ Before creating the PR, make sure the branch can merge cleanly:
 
    Step 5 will handle waiting for the new workflow to pass.
 
-5. **Wait for CI checks** (if the repo has CI workflows):
+7. **Wait for CI checks** (if the repo has CI workflows):
 
    After pushing, poll until all CI checks complete:
    ```bash
@@ -692,7 +704,7 @@ Before creating the PR, make sure the branch can merge cleanly:
 
    If the repo has no CI workflows, skip this step.
 
-6. Proceed to Phase 5. The review loop handles requesting Copilot review.
+8. Proceed to Phase 5. The review loop will detect the Copilot review from step 4 if it has already arrived, or request a new one if needed.
 
 #### Audit: Phase 4
 
