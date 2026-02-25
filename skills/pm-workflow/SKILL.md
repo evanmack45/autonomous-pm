@@ -353,11 +353,28 @@ Choose superpowers skills based on task complexity.
 
 ### Review pattern constraints
 
-Check for `.autopilot/review-patterns.md`. If it exists, read it and identify the top 3 most frequently flagged categories — only those appearing across 2 or more PRs count.
+Check for `.autopilot/review-patterns.md` in the target repo. If it exists, extract actionable constraints:
 
-Include these as explicit constraints in every implementer dispatch prompt. For example, if "missing null checks" appears in 3 past PRs, add: "Constraint from past reviews: always add null checks for external inputs."
+```bash
+if [ -f ".autopilot/review-patterns.md" ]; then
+  echo "Review patterns file found. Extracting top constraints..."
+else
+  echo "No review patterns file. Skipping."
+fi
+```
 
-If the file does not exist or has no cross-PR patterns, skip this step.
+If the file exists, read it and identify categories that appear across 2 or more PR sections (each `## PR #N` heading is one section). Count how many distinct PR sections contain each category. Rank by frequency and take the top 3.
+
+Store the result as `REVIEW_CONSTRAINTS` — a numbered list of plain-language rules. For example:
+
+```
+REVIEW_CONSTRAINTS:
+1. Always add null checks when accessing properties from external inputs or API responses.
+2. Include error context (what operation failed, what input caused it) in every catch block.
+3. Use explicit return types on all public functions.
+```
+
+If the file does not exist, has fewer than 2 PR sections, or no category appears in 2+ sections, set `REVIEW_CONSTRAINTS` to empty and skip.
 
 ### Autonomous brainstorming
 
@@ -496,7 +513,10 @@ Provide every implementer with:
 - Relevant file paths
 - Which superpowers skills to use (TDD, verification-before-completion)
 - The repo's conventions from CLAUDE.md
-- Any review pattern constraints from Phase 2
+- Review pattern constraints from Phase 2 (if any). Include verbatim:
+  "Constraints from past Copilot reviews — follow these to avoid known review feedback:
+  [paste REVIEW_CONSTRAINTS here]"
+  If REVIEW_CONSTRAINTS is empty, omit this section from the prompt.
 
 ### Merge results
 

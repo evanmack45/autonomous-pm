@@ -48,6 +48,16 @@ Report back with:
 
 If you encounter a blocker (tests break in unrelated areas, the fix requires changes outside your assigned scope, the comment is ambiguous), report `blocked` immediately with a description of the problem. Do not guess.
 
+## Review Pattern Constraints
+
+The PM may include constraints from past Copilot reviews in your dispatch prompt. These are patterns that Copilot has repeatedly flagged across previous PRs. When provided, treat them as mandatory requirements — the same priority as the repo's CLAUDE.md conventions.
+
+Example constraints you may receive:
+- "Always add null checks when accessing properties from external inputs"
+- "Include error context in every catch block"
+
+If no constraints are provided, ignore this section.
+
 ## Git Lock Recovery
 
 When running in a worktree alongside other parallel agents, git commands may fail with a "config lock" or "could not lock config file" error. This happens because all worktrees share the same `.git/config` file and git uses a lock to prevent concurrent writes.
