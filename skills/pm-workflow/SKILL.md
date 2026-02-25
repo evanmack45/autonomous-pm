@@ -320,10 +320,10 @@ If the gate is not active, continue without pausing.
 
 #### Audit: Phase 1
 
-Write the Phase 1 audit entry only after the approval gate passes (or is not active). Assign untrusted values (issue titles, user-provided text) to shell variables first, then pass them to `printf` — this prevents `$(...)` in the value from being interpreted as command substitution:
+Write the Phase 1 audit entry only after the approval gate passes (or is not active). Fetch untrusted values (issue titles) via `gh` command substitution or use single-quoted assignment — both prevent `$(...)` in the value from being interpreted by the shell:
 
 ```bash
-ISSUE_TITLE="<title>"  # assign untrusted value to variable first
+ISSUE_TITLE=$(gh issue view <NUMBER> --json title --jq '.title')  # fetch title as data — safe from injection
 {
   printf '\n### Phase 1 — Assessment (%s)\n' "$(date -u +%H:%M:%SZ)"
   printf '- **Issue selected:** #%s — %s\n' "<NUMBER>" "$ISSUE_TITLE"
@@ -934,7 +934,7 @@ Use `printf` to avoid shell injection from untrusted review comment text in the 
   printf '%s\n' "| Category | Count | Example |"
   printf '%s\n' "|----------|-------|---------|"
   # Repeat this line for each category found in the PR's review comments:
-  EXAMPLE_TEXT="<brief example from this PR>"  # assign untrusted value to variable first
+  EXAMPLE_TEXT='<brief example from this PR>'  # single-quoted: prevents shell interpretation of review comment text
   printf '| %s | %s | %s |\n' "<category>" "<N>" "$EXAMPLE_TEXT"
 } >> ".autopilot/review-patterns.md"
 
@@ -949,7 +949,7 @@ After recording review patterns, proceed to Phase 6 if the review was clean. If 
 #### Audit: Phase 5
 
 ```bash
-FINAL_STATUS="<clean | stopped — reason>"  # assign to variable if reason includes external text
+FINAL_STATUS='<clean | stopped — reason>'  # single-quoted: PM determines this value, not from external input
 {
   printf '\n### Phase 5 — Copilot Review Loop (%s)\n' "$(date -u +%H:%M:%SZ)"
   printf '- **Review cycles:** %s\n' "<count>"
@@ -1138,8 +1138,8 @@ If the run stops early for any HARD-GATE reason, finalize the audit file before 
 Use `Status: stopped` for intentional exits (approval gate declined, session limit reached, pipeline complete). Use `Status: failed` for error exits (implementation failure, Copilot timeout, review budget exhausted).
 
 ```bash
-STOP_STATUS="<stopped | failed>"
-STOP_REASON="<reason for early stop>"  # assign to variable first
+STOP_STATUS='<stopped | failed>'  # single-quoted: PM-determined value
+STOP_REASON='<reason for early stop>'  # single-quoted: may include CI output, prevents shell interpretation
 {
   printf '\n---\n'
   printf '- **Completed:** %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
