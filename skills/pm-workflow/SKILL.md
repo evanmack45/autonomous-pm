@@ -468,7 +468,7 @@ Before dispatching any subtasks (independent or dependent), remove stale `config
 if ! pgrep -x git > /dev/null 2>&1; then
   sleep 1
   if ! pgrep -x git > /dev/null 2>&1; then
-    find "$(git rev-parse --git-common-dir)" -name "config.lock" -delete 2>/dev/null || true
+    rm -f "$(git rev-parse --git-common-dir)/config.lock" 2>/dev/null || true
   fi
 fi
 ```

@@ -65,7 +65,10 @@ If any git command fails with a lock-related error:
    if ! pgrep -x git > /dev/null 2>&1; then
      sleep 1
      if ! pgrep -x git > /dev/null 2>&1; then
-       rm -f "$(git rev-parse --git-common-dir)/config.lock"
+       git_common_dir="$(git rev-parse --git-common-dir 2>/dev/null || echo '')"
+       if [ -n "$git_common_dir" ] && [ -d "$git_common_dir" ]; then
+         rm -f "$git_common_dir/config.lock"
+       fi
      fi
    fi
    # Re-run the exact git command that failed
