@@ -654,7 +654,7 @@ Before creating the PR, make sure the branch can merge cleanly:
 
 4. **Add CI workflow if the repo has none** (only when `NEEDS_CI` is true):
 
-   If Phase 1 detected no `.github/workflows/` directory, generate a basic CI workflow before proceeding. Detect the project's language and test framework from the codebase, then create a minimal workflow:
+   If Phase 1 detected no `.github/workflows/` directory, generate a basic CI workflow before proceeding. Detect the project's language and test framework by checking for manifest files (`package.json`, `requirements.txt`, `pyproject.toml`, `Cargo.toml`, `Gemfile`, `go.mod`), then create a minimal workflow:
 
    ```bash
    mkdir -p .github/workflows
@@ -690,7 +690,7 @@ Before creating the PR, make sure the branch can merge cleanly:
    - Commit, push, and wait for CI again
    - Do NOT proceed to Phase 5 until CI is green
 
-   If the repo has no CI workflows and `NEEDS_CI` was not set, skip this step.
+   If the repo has no CI workflows, skip this step.
 
 6. Proceed to Phase 5. The review loop handles requesting Copilot review.
 
@@ -1107,7 +1107,7 @@ After reporting the merge to the user, you MUST evaluate the pipeline continuati
 - Report progress: "Completed issue [N] of [MAX]. Moving to next issue."
 - Sync local main with remote: `git checkout main && git pull origin main`
 - Loop back to **Phase 1** (Assessment) to pick the next highest-priority issue
-- Phase 0 is NOT repeated — CLAUDE.md setup, audit trail initialization (including `AUDIT_FILE`), and config parsing only happen once per session. The `AUDIT_FILE` variable MUST be preserved and reused for audit entries across all subsequent issues
+- Phase 0 is NOT repeated — CLAUDE.md setup, audit trail initialization (including `AUDIT_FILE`), and config parsing only happen once per session. The `AUDIT_FILE`, `MAX_ISSUES`, `ACTIVE_GATES`, and `ISSUES_COMPLETED` variables MUST be preserved and reused across all subsequent issues
 
 **If `ISSUES_COMPLETED` >= `MAX_ISSUES`:**
 - Report: "Pipeline complete. [N] issues resolved in this session."
