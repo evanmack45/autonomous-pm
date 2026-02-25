@@ -48,6 +48,35 @@ Report back with:
 
 If you encounter a blocker (tests break in unrelated areas, the fix requires changes outside your assigned scope, the comment is ambiguous), report `blocked` immediately with a description of the problem. Do not guess.
 
+## Git Lock Recovery
+
+When running in a worktree alongside other parallel agents, git commands may fail with a "config lock" or "could not lock config file" error. This happens because all worktrees share the same `.git/config` file and git uses a lock to prevent concurrent writes.
+
+If any git command fails with a lock-related error:
+
+1. Retry once after a short delay:
+   ```bash
+   sleep 2
+   # Re-run the exact git command that failed
+   ```
+2. If it fails again, remove the stale lock file and retry:
+   ```bash
+   # Double-check to reduce race window with newly started git processes
+   if ! pgrep -x git > /dev/null 2>&1; then
+     sleep 1
+     if ! pgrep -x git > /dev/null 2>&1; then
+       git_common_dir="$(git rev-parse --git-common-dir 2>/dev/null || echo '')"
+       if [ -n "$git_common_dir" ] && [ -d "$git_common_dir" ]; then
+         rm -f "$git_common_dir/config.lock"
+       fi
+     fi
+   fi
+   # Re-run the exact git command that failed
+   ```
+3. If it still fails after the cleanup, report `blocked` with the full error message
+
+Do not retry more than twice — escalate to the PM after that.
+
 ## Rules
 
 - Follow the repo's CLAUDE.md conventions exactly
