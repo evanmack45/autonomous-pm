@@ -724,7 +724,7 @@ If the budget is exhausted (cycle count reaches 5) and unresolved threads remain
 
 ### Step 1: Request Copilot review and wait
 
-You MUST complete substeps 1a through 1f in exact order. Do NOT skip any substep.
+You MUST process substeps 1a through 1f in exact order. Do NOT skip any substep unless explicitly instructed later in this section (for example, based on the result of Substep 1b).
 
 **Substep 1a — Get repo info:**
 ```bash
@@ -743,7 +743,7 @@ IMPORTANT: Do NOT pipe `gh api` output to `jq`. Copilot review bodies contain co
 CURRENT_REVIEW_COUNT=$(gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/reviews --jq '[.[] | select(.user.login == "copilot-pull-request-reviewer[bot]")] | length')
 ```
 
-Compare `CURRENT_REVIEW_COUNT` against `REVIEWS_PROCESSED` (initialized to 0 at the start of Phase 5, before the first cycle). If `CURRENT_REVIEW_COUNT` > `REVIEWS_PROCESSED`, a review is already waiting — skip substeps 1c through 1e and go directly to substep 1f, then proceed to Step 2.
+Compare `CURRENT_REVIEW_COUNT` against `REVIEWS_PROCESSED` (initialized to 0 at the start of Phase 5, before the first cycle). If `CURRENT_REVIEW_COUNT` > `REVIEWS_PROCESSED`, a review is already waiting — skip substeps 1c and 1e (do not request a new review or poll), but still perform substep 1d, then go directly to substep 1f and proceed to Step 2.
 
 **Substep 1c — Record count and request review** (only if no unprocessed review exists):
 
@@ -1121,7 +1121,7 @@ After reporting the merge to the user, you MUST evaluate the pipeline continuati
 - Report progress: "Completed issue [N] of [MAX]. Moving to next issue."
 - Sync local main with remote: `git checkout main && git pull origin main`
 - Loop back to **Phase 1** (Assessment) to pick the next highest-priority issue
-- Phase 0 is NOT repeated — CLAUDE.md setup, audit trail initialization (including `AUDIT_FILE`), and config parsing only happen once per session. The `AUDIT_FILE`, `MAX_ISSUES`, `ACTIVE_GATES`, `ISSUES_COMPLETED`, and `REVIEWS_PROCESSED` variables MUST be preserved and reused across all subsequent issues
+- Phase 0 is NOT repeated — CLAUDE.md setup, audit trail initialization (including `AUDIT_FILE`), and config parsing only happen once per session. The `AUDIT_FILE`, `MAX_ISSUES`, `ACTIVE_GATES`, and `ISSUES_COMPLETED` variables MUST be preserved and reused across all subsequent issues. The `REVIEWS_PROCESSED` counter is per-PR/per-issue and MUST be reset to `0` when starting Phase 1 for a new issue in pipeline mode.
 
 **If `ISSUES_COMPLETED` >= `MAX_ISSUES`:**
 - Report: "Pipeline complete. [N] issues resolved in this session."
