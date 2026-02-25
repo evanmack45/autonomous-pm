@@ -39,6 +39,30 @@ The PM is fully autonomous within each issue. Pipeline mode adds a stop-or-conti
 
 ## Phase 0 — Setup
 
+### Audit trail
+
+Create the audit directory and initialize a run log. This MUST happen before the recovery check so that `AUDIT_FILE` is defined regardless of which phase the PM resumes from:
+
+```bash
+mkdir -p .autopilot/runs
+AUDIT_FILE=".autopilot/runs/$(date +%Y%m%d-%H%M%S).md"
+cat > "$AUDIT_FILE" <<EOF
+# Autopilot Run — $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+- **Started:** $(date -u +%Y-%m-%dT%H:%M:%SZ)
+- **Status:** in-progress
+EOF
+```
+
+Each phase appends a structured entry to `$AUDIT_FILE`:
+
+```markdown
+### Phase N — Name (timestamp)
+- **Decision:** what was decided and why
+- **Result:** outcome or API response summary
+- **Outcome:** success | failure | skipped
+```
+
 ### Recovery check
 
 Before doing anything else, check for leftover state from a previous interrupted run:
@@ -87,30 +111,6 @@ Wait for the user's choice.
 5. Proceed to Phase 0 setup as normal
 
 **If no prior state is found**, continue with setup below.
-
-### Audit trail
-
-Create the audit directory and initialize a run log:
-
-```bash
-mkdir -p .autopilot/runs
-AUDIT_FILE=".autopilot/runs/$(date +%Y%m%d-%H%M%S).md"
-cat > "$AUDIT_FILE" <<EOF
-# Autopilot Run — $(date -u +%Y-%m-%dT%H:%M:%SZ)
-
-- **Started:** $(date -u +%Y-%m-%dT%H:%M:%SZ)
-- **Status:** in-progress
-EOF
-```
-
-Each phase appends a structured entry to `$AUDIT_FILE`:
-
-```markdown
-### Phase N — Name (timestamp)
-- **Decision:** what was decided and why
-- **Result:** outcome or API response summary
-- **Outcome:** success | failure | skipped
-```
 
 ### CLAUDE.md setup
 
@@ -946,7 +946,7 @@ git commit -m "chore: record review patterns from PR #$PR_NUMBER"
 
 This file accumulates across runs. Phase 2's "Review pattern constraints" step reads it to avoid repeating the same mistakes.
 
-After recording review patterns, proceed to Phase 6 if the review was clean. If the review budget was exhausted or the loop stopped for another reason, stop here.
+After recording review patterns, proceed to Phase 6 if the review was clean. If the review budget was exhausted or the loop stopped for another reason, stop here (see **Audit trail on early stop**).
 
 #### Audit: Phase 5
 
