@@ -652,7 +652,19 @@ Before creating the PR, make sure the branch can merge cleanly:
 
    The `Closes #N` line auto-closes the parent issue when the PR merges.
 
-4. **Add CI workflow if the repo has none** (only when `NEEDS_CI` is true):
+4. **Request Copilot review immediately** so it runs in parallel with CI:
+
+   ```bash
+   OWNER=$(gh repo view --json owner -q '.owner.login')
+   REPO=$(gh repo view --json name -q '.name')
+   PR_NUMBER=$(gh pr view --json number -q '.number')
+   gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/requested_reviewers \
+     -X POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>/dev/null || true
+   ```
+
+   This is a fire-and-forget request. Do not wait for the review here — Phase 5 Step 1b will detect it when the review loop starts. If the request fails silently (Copilot not enabled), Phase 5 will handle requesting it again.
+
+5. **Add CI workflow if the repo has none** (only when `NEEDS_CI` is true):
 
    If Phase 1 determined that no CI workflows exist in `.github/workflows/`, generate a basic CI workflow before proceeding. Detect the project's language and test framework by checking for manifest files (`package.json`, `requirements.txt`, `pyproject.toml`, `Cargo.toml`, `Gemfile`, `go.mod`), then create a minimal workflow:
 
@@ -675,9 +687,9 @@ Before creating the PR, make sure the branch can merge cleanly:
    git push
    ```
 
-   Step 5 will handle waiting for the new workflow to pass.
+   Step 6 will handle waiting for the new workflow to pass.
 
-5. **Wait for CI checks** (if the repo has CI workflows):
+6. **Wait for CI checks** (if the repo has CI workflows):
 
    After pushing, poll until all CI checks complete:
    ```bash
@@ -692,7 +704,7 @@ Before creating the PR, make sure the branch can merge cleanly:
 
    If the repo has no CI workflows, skip this step.
 
-6. Proceed to Phase 5. The review loop handles requesting Copilot review.
+7. Proceed to Phase 5. The review loop will detect the Copilot review from step 4 if it has already arrived, or request a new one if needed.
 
 #### Audit: Phase 4
 
@@ -714,6 +726,8 @@ This is the core feedback loop. Repeat until clean.
 
 Track the cycle count starting at 0. Increment after each pass through Steps 1-7. The maximum is **5 cycles**.
 
+Initialize `REVIEWS_PROCESSED=0` before the first cycle. Increment it each time a review is read and processed in Step 2. This counter tracks how many Copilot reviews have been handled, so Step 1 can detect unprocessed reviews that arrived while CI was running.
+
 If the budget is exhausted (cycle count reaches 5) and unresolved threads remain:
 1. Post a comment on the PR listing all remaining unresolved threads with file paths and line numbers
 2. Update the tracking task to reflect the stopped state
@@ -722,7 +736,7 @@ If the budget is exhausted (cycle count reaches 5) and unresolved threads remain
 
 ### Step 1: Request Copilot review and wait
 
-You MUST complete substeps 1a through 1f in exact order. Do NOT skip any substep. Do NOT start polling before requesting the review.
+You MUST process substeps 1a through 1f in exact order. Do NOT skip any substep unless explicitly instructed later in this section (for example, based on the result of Substep 1b).
 
 **Substep 1a — Get repo info:**
 ```bash
@@ -731,16 +745,26 @@ REPO=$(gh repo view --json name -q '.name')
 PR_NUMBER=$(gh pr view --json number -q '.number')
 ```
 
-**Substep 1b — Record the current review count** (so you detect when a NEW one arrives):
+**Substep 1b — Check for an existing unprocessed review:**
+
+Copilot auto-reviews when a PR is first opened. If CI checks ran after the PR was created, Copilot's review may have arrived while CI was still running. Before requesting a new review, check if one already exists that hasn't been processed yet.
 
 IMPORTANT: Do NOT pipe `gh api` output to `jq`. Copilot review bodies contain control characters that break `jq` parsing. Always use `gh api --jq` which handles JSON internally:
 
 ```bash
-REVIEW_COUNT_BEFORE=$(gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/reviews --jq '[.[] | select(.user.login == "copilot-pull-request-reviewer[bot]")] | length')
+CURRENT_REVIEW_COUNT=$(gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/reviews --jq '[.[] | select(.user.login == "copilot-pull-request-reviewer[bot]")] | length')
+```
+
+Compare `CURRENT_REVIEW_COUNT` against `REVIEWS_PROCESSED` (initialized to 0 at the start of Phase 5, before the first cycle). If `CURRENT_REVIEW_COUNT` > `REVIEWS_PROCESSED`, a review is already waiting — skip substeps 1c and 1e (do not request a new review or poll), but still perform substep 1d, then go directly to substep 1f and proceed to Step 2.
+
+**Substep 1c — Record count and request review** (only if no unprocessed review exists):
+
+```bash
+REVIEW_COUNT_BEFORE=$CURRENT_REVIEW_COUNT
 ```
 
 <HARD-GATE>
-**Substep 1c — REQUEST THE COPILOT REVIEW.** This is mandatory. Copilot does NOT automatically review after new commits — it only auto-reviews when a PR is first opened. Every subsequent review cycle MUST explicitly request it. Run this command NOW, before creating the spinner, before polling. If you skip this, the poll will wait forever.
+REQUEST THE COPILOT REVIEW. This is mandatory when no unprocessed review exists. Copilot does NOT automatically review after new commits — it only auto-reviews when a PR is first opened. Every subsequent review cycle MUST explicitly request it. Run this command NOW, before creating the spinner, before polling. If you skip this, the poll will wait forever.
 </HARD-GATE>
 
 ```bash
@@ -775,7 +799,7 @@ TaskCreate:
 TaskUpdate: set status to in_progress
 ```
 
-**Substep 1e — Poll until a NEW review appears** (review count increases beyond what you recorded in 1b). Timeout after 30 minutes:
+**Substep 1e — Poll until a NEW review appears** (review count increases beyond `REVIEW_COUNT_BEFORE`). Timeout after 30 minutes:
 ```bash
 SECONDS=0
 TIMEOUT=1800
@@ -844,6 +868,8 @@ From the response, extract for each unresolved thread:
 - `nodes[].isResolved` — skip threads already resolved
 
 Only process unresolved threads where the comment author is `copilot-pull-request-reviewer[bot]`.
+
+After reading the review, increment `REVIEWS_PROCESSED` by 1.
 
 ### Step 3: Invoke receiving-code-review
 
@@ -1107,7 +1133,7 @@ After reporting the merge to the user, you MUST evaluate the pipeline continuati
 - Report progress: "Completed issue [N] of [MAX]. Moving to next issue."
 - Sync local main with remote: `git checkout main && git pull origin main`
 - Loop back to **Phase 1** (Assessment) to pick the next highest-priority issue
-- Phase 0 is NOT repeated — CLAUDE.md setup, audit trail initialization (including `AUDIT_FILE`), and config parsing only happen once per session. The `AUDIT_FILE`, `MAX_ISSUES`, `ACTIVE_GATES`, and `ISSUES_COMPLETED` variables MUST be preserved and reused across all subsequent issues
+- Phase 0 is NOT repeated — CLAUDE.md setup, audit trail initialization (including `AUDIT_FILE`), and config parsing only happen once per session. The `AUDIT_FILE`, `MAX_ISSUES`, `ACTIVE_GATES`, and `ISSUES_COMPLETED` variables MUST be preserved and reused across all subsequent issues. The `REVIEWS_PROCESSED` counter is per-PR/per-issue and MUST be reset to `0` when starting Phase 1 for a new issue in pipeline mode.
 
 **If `ISSUES_COMPLETED` >= `MAX_ISSUES`:**
 - Report: "Pipeline complete. [N] issues resolved in this session."
