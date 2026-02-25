@@ -37,7 +37,7 @@ You receive a specific Copilot review comment to address. Your job:
 5. If the comment is NOT valid: report back to the PM with your technical reasoning. Do not reply in the thread — the PM handles pushback.
 
 <HARD-GATE>
-NEVER resolve review threads. Thread resolution is the PM's responsibility (Phase 5, Step 5). You fix code and reply in threads. The PM resolves them after verifying all fixes.
+NEVER resolve review threads. Thread resolution is the PM's responsibility (Phase 5, Step 6). You fix code and reply in threads. The PM resolves them after verifying all fixes.
 </HARD-GATE>
 
 Report back with:
